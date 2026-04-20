@@ -344,21 +344,33 @@ app.post('/api/setup/save', async (req, res) => {
 
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 
-    // Register the tracker row during setup so admin can see users immediately.
-    await TrackingStatus.findOneAndUpdate(
-      { company_id: config.company_id, user_id: config.user_id },
-      {
-        $setOnInsert: {
-          is_tracking_active: true,
-          is_decommissioned: false,
-          report_interval: 120,
-          last_updated_by: 'setup'
-        }
-      },
-      { upsert: true, new: true }
-    );
+    let trackerWarning = '';
 
-    res.json({ message: 'Setup saved successfully', config });
+    // Register the tracker row during setup so admin can see users immediately.
+    // This should not block the local setup flow if Mongo is temporarily unavailable.
+    try {
+      await TrackingStatus.findOneAndUpdate(
+        { company_id: config.company_id, user_id: config.user_id },
+        {
+          $setOnInsert: {
+            is_tracking_active: true,
+            is_decommissioned: false,
+            report_interval: 120,
+            last_updated_by: 'setup'
+          }
+        },
+        { upsert: true, new: true }
+      );
+    } catch (trackerError) {
+      trackerWarning = trackerError?.message || 'Tracker registration skipped.';
+      console.warn('[-] Tracker registration skipped during setup save:', trackerWarning);
+    }
+
+    res.json({
+      message: 'Setup saved successfully',
+      config,
+      warning: trackerWarning || undefined
+    });
   } catch (error) {
     console.error('[-] Error saving setup config:', error);
     res.status(500).json({ error: 'Internal Server Error' });
