@@ -23,6 +23,16 @@ if %errorlevel% neq 0 (
 )
 
 echo Launching main installer...
+set BACKEND_URL=http://localhost:3000
+if exist backend_url.txt (
+    for /f "usebackq delims=" %%i in ("backend_url.txt") do (
+        if not "%%i"=="" set BACKEND_URL=%%i
+    )
+)
+
+echo Opening web onboarding page...
+start "" "%BACKEND_URL%/setup.html?autoclose=1^&runMonitor=1"
+
 python install_and_run.py --autostart
 
 pause
