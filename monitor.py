@@ -168,11 +168,6 @@ def _setup_logging():
 
 def _resolve_backend_url(config: dict | None = None) -> str:
     """Resolve backend URL in this priority: config -> env -> file -> default."""
-    if config:
-        candidate = str(config.get("backend_url") or "").strip()
-        if candidate:
-            return candidate.rstrip('/')
-
     env_value = str(os.environ.get("MONITOR_BACKEND_URL", "")).strip()
     if env_value:
         return env_value.rstrip('/')
@@ -184,6 +179,13 @@ def _resolve_backend_url(config: dict | None = None) -> str:
                 return file_value.rstrip('/')
         except Exception:
             pass
+
+    if config:
+        candidate = str(config.get("backend_url") or "").strip()
+        if candidate:
+            normalized = candidate.rstrip('/')
+            if not normalized.startswith('http://localhost') and not normalized.startswith('http://127.0.0.1'):
+                return normalized
 
     return BACKEND_URL.rstrip('/')
 
