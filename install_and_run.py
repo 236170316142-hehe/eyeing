@@ -12,6 +12,7 @@ import zipfile
 import tempfile
 import shutil
 import json
+import webbrowser
 from pathlib import Path
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
@@ -21,76 +22,33 @@ def run_onboarding():
     base_dir = Path(__file__).parent.absolute()
     data_dir = base_dir / "activity_data"
     config_file = data_dir / "config.json"
-    
+
     if config_file.exists():
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
-                if cfg.get("employee_id") and cfg.get("company_id"):
-                    return # Already set up
-        except:
+                if cfg.get("employee_id") and cfg.get("company_id") and cfg.get("user_id"):
+                    return  # Already set up
+        except Exception:
             pass
-            
-    try:
-        import tkinter as tk
-        from tkinter import ttk, messagebox
-    except ImportError:
-        print("[WARN] Tkinter not available. Skipping GUI config...")
-        return
-        
-    root = tk.Tk()
-    root.title("Initial Employee Setup")
-    root.geometry("400x350")
-    root.eval('tk::PlaceWindow . center')
-    
-    # Store string vars
-    v_emp = tk.StringVar()
-    v_comp = tk.StringVar()
-    v_org = tk.StringVar()
-    v_user = tk.StringVar()
-    
-    def on_submit():
-        if not all([v.get().strip() for v in [v_emp, v_comp, v_org, v_user]]):
-            messagebox.showerror("Error", "All fields are required!")
-            return
-            
-        data_dir.mkdir(parents=True, exist_ok=True)
-        import socket
+
+    backend_url = "http://localhost:3000"
+    backend_url_file = base_dir / "backend_url.txt"
+    if backend_url_file.exists():
         try:
-            device = socket.gethostname()
-        except:
-            device = "UNKNOWN"
-            
-        config_data = {
-            "employee_id": v_emp.get().strip(),
-            "company_id": v_comp.get().strip(),
-            "org_name": v_org.get().strip(),
-            "user_id": v_user.get().strip(),
-            "device_id": device
-        }
-        
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(config_data, f, indent=2)
-            
-        root.destroy()
-        
-    ttk.Label(root, text="Configure Activity Monitor", font=("Helvetica", 14, "bold")).pack(pady=15)
-    
-    fields = [("Employee ID:", v_emp), ("Company ID:", v_comp), 
-              ("Organization Name:", v_org), ("User ID:", v_user)]
-              
-    for label_text, str_var in fields:
-        frame = ttk.Frame(root)
-        frame.pack(fill='x', padx=30, pady=5)
-        ttk.Label(frame, text=label_text, width=15).pack(side='left')
-        ttk.Entry(frame, textvariable=str_var).pack(side='right', expand=True, fill='x')
-        
-    ttk.Button(root, text="Complete Setup", command=on_submit).pack(pady=25)
-    
-    # Force focus
-    root.attributes('-topmost', True)
-    root.focus_force()
-    root.mainloop()
+            value = backend_url_file.read_text(encoding='utf-8').strip()
+            if value:
+                backend_url = value.rstrip('/')
+        except Exception:
+            pass
+
+    setup_url = f"{backend_url}/setup.html?autoclose=1&runMonitor=1"
+    print(f"[INFO] Opening web onboarding page: {setup_url}")
+    try:
+        webbrowser.open(setup_url)
+    except Exception as exc:
+        print(f"[WARN] Could not open browser automatically: {exc}")
+        print(f"[INFO] Open this URL manually to complete setup: {setup_url}")
 
 def check_python():
     try:
