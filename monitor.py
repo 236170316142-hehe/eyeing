@@ -817,11 +817,11 @@ class ActivityMonitor:
         except Exception:
             pass
 
-            # 3. Self-delete: run detached PowerShell cleanup with broader folder sweep.
-            # This mirrors the manual cleanup flow and handles stale generated folders.
-            target_ps = folder_path.replace("'", "''")
-            script_ps = os.path.abspath(__file__).replace("'", "''")
-            cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
+        # 3. Self-delete: run detached PowerShell cleanup with broader folder sweep.
+        # This mirrors the manual cleanup flow and handles stale generated folders.
+        target_ps = folder_path.replace("'", "''")
+        script_ps = os.path.abspath(__file__).replace("'", "''")
+        cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
 
 $targetDir = '{target_ps}'
 $monitorScript = '{script_ps}'
