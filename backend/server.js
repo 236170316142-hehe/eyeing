@@ -114,6 +114,20 @@ app.post('/api/reports', async (req, res) => {
 
     const newReport = new Report(reportData);
     await newReport.save();
+
+    // Ensure user appears in admin tracker directory even before manual toggles.
+    await TrackingStatus.findOneAndUpdate(
+      { company_id: reportData.company_id, user_id: reportData.user_id },
+      {
+        $setOnInsert: {
+          is_tracking_active: true,
+          is_decommissioned: false,
+          report_interval: 120,
+          last_updated_by: 'report-ingest'
+        }
+      },
+      { upsert: true, new: true }
+    );
     
     console.log(`[+] Saved report -> Company: ${reportData.company_id} | User: ${reportData.user_id}`);
     res.status(201).json({ message: 'Report saved successfully', id: newReport._id });
@@ -329,6 +343,21 @@ app.post('/api/setup/save', async (req, res) => {
     };
 
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+
+    // Register the tracker row during setup so admin can see users immediately.
+    await TrackingStatus.findOneAndUpdate(
+      { company_id: config.company_id, user_id: config.user_id },
+      {
+        $setOnInsert: {
+          is_tracking_active: true,
+          is_decommissioned: false,
+          report_interval: 120,
+          last_updated_by: 'setup'
+        }
+      },
+      { upsert: true, new: true }
+    );
+
     res.json({ message: 'Setup saved successfully', config });
   } catch (error) {
     console.error('[-] Error saving setup config:', error);
@@ -501,26 +530,74 @@ app.post('/api/admin/toggle-tracking', async (req, res) => {
 // 5. Admin Endpoint to Fetch All Registered Trackers
 app.get('/api/admin/trackers', async (req, res) => {
   try {
-    // Show all trackers, even those pending decommission deletion
+    // Show trackers from status collection and also fallback users discovered from reports.
     const trackers = await TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt')
       .sort({ company_id: 1, user_id: 1 })
       .lean();
 
+    const merged = new Map();
+    trackers.forEach((tracker) => {
+      const key = `${tracker.company_id}::${tracker.user_id}`;
+      merged.set(key, {
+        ...tracker,
+        designation: ''
+      });
+    });
+
+    const reportUsers = await Report.aggregate([
+      { $match: { company_id: { $exists: true, $ne: '' }, user_id: { $exists: true, $ne: '' } } },
+      {
+        $group: {
+          _id: { company_id: '$company_id', user_id: '$user_id' },
+          latestDesignation: { $last: '$designation' }
+        }
+      }
+    ]);
+
+    reportUsers.forEach((entry) => {
+      const companyId = String(entry?._id?.company_id || '').trim();
+      const userId = String(entry?._id?.user_id || '').trim();
+      if (!companyId || !userId) return;
+
+      const key = `${companyId}::${userId}`;
+      if (!merged.has(key)) {
+        merged.set(key, {
+          _id: key,
+          company_id: companyId,
+          user_id: userId,
+          is_tracking_active: true,
+          is_decommissioned: false,
+          report_interval: 120,
+          updatedAt: null,
+          designation: String(entry?.latestDesignation || '').trim()
+        });
+      } else if (!merged.get(key).designation && entry?.latestDesignation) {
+        merged.get(key).designation = String(entry.latestDesignation).trim();
+      }
+    });
+
     const trackersWithDesignation = await Promise.all(
-      trackers.map(async (tracker) => {
-        let designation = '';
-        try {
-          designation = await getUserDesignation(tracker.company_id, tracker.user_id);
-        } catch (designationError) {
-          console.warn('[!] Could not resolve designation for tracker:', tracker.company_id, tracker.user_id, designationError?.message || designationError);
+      Array.from(merged.values()).map(async (tracker) => {
+        if (tracker.designation) {
+          return tracker;
         }
 
-        return {
-          ...tracker,
-          designation
-        };
+        try {
+          const designation = await getUserDesignation(tracker.company_id, tracker.user_id);
+          return { ...tracker, designation };
+        } catch (designationError) {
+          console.warn('[!] Could not resolve designation for tracker:', tracker.company_id, tracker.user_id, designationError?.message || designationError);
+          return tracker;
+        }
       })
     );
+
+    trackersWithDesignation.sort((a, b) => {
+      if (a.company_id === b.company_id) {
+        return String(a.user_id).localeCompare(String(b.user_id));
+      }
+      return String(a.company_id).localeCompare(String(b.company_id));
+    });
 
     res.json(trackersWithDesignation);
   } catch (error) {
