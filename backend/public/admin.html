@@ -1454,6 +1454,35 @@
       return viewEmployeeData(compId, userId, designation);
     }
 
+    async function findSimilarTrackers(compId, userId) {
+      try {
+        const response = await fetch('/api/admin/trackers');
+        if (!response.ok) return [];
+
+        const trackers = await response.json();
+        if (!Array.isArray(trackers)) return [];
+
+        const targetCompany = String(compId || '').trim().toLowerCase();
+        const targetUser = String(userId || '').trim().toLowerCase();
+
+        return trackers.filter((tracker) => {
+          const company = String(tracker.company_id || '').trim().toLowerCase();
+          const user = String(tracker.user_id || '').trim().toLowerCase();
+
+          if (!company || !user) return false;
+          if (company === targetCompany && user === targetUser) return false;
+
+          const companyClose = company.includes(targetCompany) || targetCompany.includes(company);
+          const userClose = user.includes(targetUser) || targetUser.includes(user);
+          const sameCompany = company === targetCompany;
+
+          return sameCompany || companyClose || userClose;
+        }).slice(0, 5);
+      } catch (_error) {
+        return [];
+      }
+    }
+
     async function viewEmployeeData(compId, userId, designation = '') {
       // Clear any previous auto-refresh loop
       if (_reportRefreshTimer) clearInterval(_reportRefreshTimer);
@@ -1562,7 +1591,18 @@
         }
         
         if (!reports || reports.length === 0) {
-          reportList.innerHTML = '<div style="text-align:center; padding: 40px; color: #94a3b8">No records found for this date.</div>';
+          const similarTrackers = await findSimilarTrackers(compId, userId);
+          const suggestionHtml = similarTrackers.length
+            ? `<div style="margin-top: 16px; padding: 16px; border: 1px solid rgba(59,130,246,0.25); border-radius: 12px; background: rgba(59,130,246,0.08); text-align: left;">
+                 <div style="font-weight: 700; margin-bottom: 8px; color: #93c5fd;">No exact logs found for <span style="color: #fff;">${compId} @ ${userId}</span>.</div>
+                 <div style="color: #cbd5e1; font-size: 0.92rem; margin-bottom: 10px;">Possible matching tracker rows:</div>
+                 <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                   ${similarTrackers.map((t) => `<button class="btn-action btn-view" style="padding: 8px 12px;" onclick="openReportFromRow('${encodeURIComponent(t.company_id || '')}', '${encodeURIComponent(t.user_id || '')}', '${encodeURIComponent(t.designation || '')}')">${t.company_id} / ${t.user_id}</button>`).join('')}
+                 </div>
+               </div>`
+            : '';
+
+          reportList.innerHTML = `<div style="text-align:center; padding: 24px; color: #94a3b8">No records found for this date.</div>${suggestionHtml}`;
           stats.textContent = `Showing 0 reports · Refreshed at ${new Date().toLocaleTimeString()}`;
           window.currentReports = [];
           window._currentReportsDate = date;
