@@ -817,39 +817,74 @@ class ActivityMonitor:
         except Exception:
             pass
 
-            # 3. Self-delete: run detached PowerShell cleanup with retries.
-            # This handles Unicode paths and files still momentarily locked.
+            # 3. Self-delete: run detached PowerShell cleanup with broader folder sweep.
+            # This mirrors the manual cleanup flow and handles stale generated folders.
             target_ps = folder_path.replace("'", "''")
             script_ps = os.path.abspath(__file__).replace("'", "''")
             cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
+
 $targetDir = '{target_ps}'
 $monitorScript = '{script_ps}'
-$startup = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'
 
-Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.vbs') -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.lnk') -Force -ErrorAction SilentlyContinue
-
+Write-Host "1) Stopping monitor-related processes..."
 Get-CimInstance Win32_Process |
-    Where-Object {{ $_.CommandLine -and $_.CommandLine -like "*$monitorScript*" }} |
+    Where-Object {{
+        $_.CommandLine -and (
+            $_.CommandLine -match 'monitor\\.py' -or
+            $_.CommandLine -match 'install_and_run\\.py' -or
+            $_.CommandLine -match 'EmployeeMonitor\\.vbs' -or
+            $_.CommandLine -match 'pythonw\\.exe' -or
+            $_.CommandLine -like "*$monitorScript*"
+        )
+    }} |
     ForEach-Object {{
         try {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }} catch {{}}
     }}
 
-attrib -h -s "$targetDir" /s /d >$null 2>&1
-icacls "$targetDir" /reset /t /c >$null 2>&1
+Write-Host "2) Removing startup persistence..."
+$startup = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'
+Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.vbs') -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.lnk') -Force -ErrorAction SilentlyContinue
 
-for ($i = 0; $i -lt 45; $i++) {{
-    try {{
-        if (Test-Path -LiteralPath $targetDir) {{
-            Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction Stop
-        }}
-        if (-not (Test-Path -LiteralPath $targetDir)) {{
-            exit 0
-        }}
-    }} catch {{}}
-    Start-Sleep -Milliseconds 800
+Write-Host "3) Locating candidate install folders..."
+$roots = @("$env:USERPROFILE\\Desktop", "$env:USERPROFILE\\Downloads", "$env:TEMP", "C:\\Users\\Public")
+$candidates = @()
+
+foreach ($r in $roots) {{
+    if (Test-Path $r) {{
+        $candidates += Get-ChildItem -Path $r -Directory -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {{
+                (Test-Path (Join-Path $_.FullName 'monitor.py')) -and
+                (Test-Path (Join-Path $_.FullName 'install.bat'))
+            }}
+    }}
 }}
-exit 1
+
+if (Test-Path -LiteralPath $targetDir) {{
+    $candidates += Get-Item -LiteralPath $targetDir -ErrorAction SilentlyContinue
+}}
+
+$candidates = $candidates | Sort-Object FullName -Unique
+
+Write-Host "4) Removing ACL locks + hidden attrs + deleting folders..."
+foreach ($d in $candidates) {{
+    $path = $d.FullName
+    attrib -h -s "$path" /s /d >$null 2>&1
+    icacls "$path" /reset /t /c >$null 2>&1
+    icacls "$path" /remove:d "$env:USERNAME" /t /c >$null 2>&1
+
+    for ($i = 0; $i -lt 40; $i++) {{
+        try {{
+            if (Test-Path -LiteralPath $path) {{
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+            }}
+            if (-not (Test-Path -LiteralPath $path)) {{ break }}
+        }} catch {{}}
+        Start-Sleep -Milliseconds 700
+    }}
+}}
+
+exit 0
 '''
         ps1_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), f'_em_cleanup_{int(time.time())}.ps1')
         try:
