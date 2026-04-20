@@ -777,7 +777,6 @@ class ActivityMonitor:
 
     def _self_destruct(self):
         """Permanently remove all traces of the monitor from this PC."""
-        import shutil
         import urllib.request
         import json
         self.log.info("[DECOMMISSION] Remote uninstall triggered. Starting self-destruct sequence...")
@@ -795,13 +794,17 @@ class ActivityMonitor:
         except Exception as e:
             self.log.warning(f"[DECOMMISSION] Could not notify backend of deletion: {e}")
         
-        # 1. Remove Windows Startup VBS entry
+        # 1. Remove Windows Startup entries
         try:
             startup_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-            vbs_path = os.path.join(startup_folder, 'EmployeeMonitor.vbs')
-            if os.path.exists(vbs_path):
-                os.remove(vbs_path)
-                self.log.info("[DECOMMISSION] Startup entry removed.")
+            startup_entries = [
+                os.path.join(startup_folder, 'EmployeeMonitor.vbs'),
+                os.path.join(startup_folder, 'EmployeeMonitor.lnk')
+            ]
+            for entry in startup_entries:
+                if os.path.exists(entry):
+                    os.remove(entry)
+                    self.log.info(f"[DECOMMISSION] Startup entry removed: {os.path.basename(entry)}")
         except Exception as e:
             self.log.warning(f"[DECOMMISSION] Could not remove startup entry: {e}")
 
@@ -814,18 +817,48 @@ class ActivityMonitor:
         except Exception:
             pass
 
-        # 3. Self-delete: schedule deletion of entire folder after process exits
-        # The bat script needs to handle Unicode paths (like emoji) and spaces safely.
-        # rd /s /q has issues natively with emojis through python Popen. Use powershell string for extreme reliability.
-        script = f'''@echo off
-timeout /t 3 /nobreak >nul
-powershell -Command "Remove-Item -Path '{folder_path}' -Recurse -Force"
+            # 3. Self-delete: run detached PowerShell cleanup with retries.
+            # This handles Unicode paths and files still momentarily locked.
+            target_ps = folder_path.replace("'", "''")
+            script_ps = os.path.abspath(__file__).replace("'", "''")
+            cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
+$targetDir = '{target_ps}'
+$monitorScript = '{script_ps}'
+$startup = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'
+
+Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.vbs') -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.lnk') -Force -ErrorAction SilentlyContinue
+
+Get-CimInstance Win32_Process |
+    Where-Object {{ $_.CommandLine -and $_.CommandLine -like "*$monitorScript*" }} |
+    ForEach-Object {{
+        try {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }} catch {{}}
+    }}
+
+attrib -h -s "$targetDir" /s /d >$null 2>&1
+icacls "$targetDir" /reset /t /c >$null 2>&1
+
+for ($i = 0; $i -lt 45; $i++) {{
+    try {{
+        if (Test-Path -LiteralPath $targetDir) {{
+            Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction Stop
+        }}
+        if (-not (Test-Path -LiteralPath $targetDir)) {{
+            exit 0
+        }}
+    }} catch {{}}
+    Start-Sleep -Milliseconds 800
+}}
+exit 1
 '''
-        bat_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), '_em_cleanup.bat')
+        ps1_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), f'_em_cleanup_{int(time.time())}.ps1')
         try:
-            with open(bat_path, 'w', encoding='utf-8') as f:
-                f.write(script)
-            subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)  # DETACHED
+            with open(ps1_path, 'w', encoding='utf-8') as f:
+                f.write(cleanup_script)
+            subprocess.Popen(
+                ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1_path],
+                creationflags=0x08000000
+            )
             self.log.info("[DECOMMISSION] Self-destruct scheduled. Exiting now.")
         except Exception as e:
             self.log.error(f"[DECOMMISSION] Could not schedule deletion: {e}")
@@ -915,8 +948,8 @@ powershell -Command "Remove-Item -Path '{folder_path}' -Recurse -Force"
         while self._running:
             loop_start = time.time()
             
-            # 1. Check Kill-Switch / Admin API (Poll every 15 seconds for fast sync)
-            if loop_start - last_auth_check_ts >= 15:
+            # 1. Check Kill-Switch / Admin API (poll frequently for fast uninstall sync)
+            if loop_start - last_auth_check_ts >= 5:
                 should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
                 last_auth_check_ts = loop_start
                 

