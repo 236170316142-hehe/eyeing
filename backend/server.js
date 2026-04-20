@@ -80,6 +80,15 @@ function readSetupConfig() {
   }
 }
 
+function withTimeout(promise, ms, label = 'Operation') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    })
+  ]);
+}
+
 async function getUserDesignation(companyId, userId) {
   const latestWithDesignation = await Report.findOne({
     company_id: companyId,
@@ -558,9 +567,13 @@ app.post('/api/admin/toggle-tracking', async (req, res) => {
 app.get('/api/admin/trackers', async (req, res) => {
   try {
     // Show trackers from status collection and also fallback users discovered from reports.
-    const trackers = await TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt')
-      .sort({ company_id: 1, user_id: 1 })
-      .lean();
+    const trackers = await withTimeout(
+      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt')
+        .sort({ company_id: 1, user_id: 1 })
+        .lean(),
+      8000,
+      'TrackingStatus query'
+    );
 
     const merged = new Map();
     trackers.forEach((tracker) => {
@@ -571,15 +584,19 @@ app.get('/api/admin/trackers', async (req, res) => {
       });
     });
 
-    const reportUsers = await Report.aggregate([
-      { $match: { company_id: { $exists: true, $ne: '' }, user_id: { $exists: true, $ne: '' } } },
-      {
-        $group: {
-          _id: { company_id: '$company_id', user_id: '$user_id' },
-          latestDesignation: { $last: '$designation' }
+    const reportUsers = await withTimeout(
+      Report.aggregate([
+        { $match: { company_id: { $exists: true, $ne: '' }, user_id: { $exists: true, $ne: '' } } },
+        {
+          $group: {
+            _id: { company_id: '$company_id', user_id: '$user_id' },
+            latestDesignation: { $last: '$designation' }
+          }
         }
-      }
-    ]);
+      ]),
+      8000,
+      'Report aggregate query'
+    );
 
     reportUsers.forEach((entry) => {
       const companyId = String(entry?._id?.company_id || '').trim();
@@ -603,7 +620,7 @@ app.get('/api/admin/trackers', async (req, res) => {
       }
     });
 
-    const trackersWithDesignation = await Promise.all(
+    const trackersWithDesignation = await withTimeout(Promise.all(
       Array.from(merged.values()).map(async (tracker) => {
         if (tracker.designation) {
           return tracker;
@@ -617,7 +634,7 @@ app.get('/api/admin/trackers', async (req, res) => {
           return tracker;
         }
       })
-    );
+    ), 8000, 'Designation enrichment');
 
     trackersWithDesignation.sort((a, b) => {
       if (a.company_id === b.company_id) {

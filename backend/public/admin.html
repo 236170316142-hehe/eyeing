@@ -1327,7 +1327,10 @@
       tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">Loading trackers...</td></tr>';
       
       try {
-        const response = await fetch('/api/admin/trackers');
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), 12000);
+        const response = await fetch('/api/admin/trackers', { signal: controller.signal });
+        clearTimeout(timeoutHandle);
         if (!response.ok) throw new Error("API Error");
         
         const trackers = await response.json();
