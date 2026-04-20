@@ -12,43 +12,10 @@ import zipfile
 import tempfile
 import shutil
 import json
-import webbrowser
 from pathlib import Path
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
 PYTHON_VERSION_MIN = (3, 8)
-
-def run_onboarding():
-    base_dir = Path(__file__).parent.absolute()
-    data_dir = base_dir / "activity_data"
-    config_file = data_dir / "config.json"
-
-    if config_file.exists():
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                cfg = json.load(f)
-                if cfg.get("employee_id") and cfg.get("company_id") and cfg.get("user_id"):
-                    return  # Already set up
-        except Exception:
-            pass
-
-    backend_url = "http://localhost:3000"
-    backend_url_file = base_dir / "backend_url.txt"
-    if backend_url_file.exists():
-        try:
-            value = backend_url_file.read_text(encoding='utf-8').strip()
-            if value:
-                backend_url = value.rstrip('/')
-        except Exception:
-            pass
-
-    setup_url = f"{backend_url}/setup.html?autoclose=1&runMonitor=1"
-    print(f"[INFO] Opening web onboarding page: {setup_url}")
-    try:
-        webbrowser.open(setup_url)
-    except Exception as exc:
-        print(f"[WARN] Could not open browser automatically: {exc}")
-        print(f"[INFO] Open this URL manually to complete setup: {setup_url}")
 
 def check_python():
     try:
@@ -194,9 +161,6 @@ def main():
         print("\n[INFO] Please restart this script after Python installation.")
         input("Press Enter to exit...")
         sys.exit(0)
-    
-    # Prompt user with the GUI for IDs before installing the rest
-    run_onboarding()
     
     install_requirements()
     
