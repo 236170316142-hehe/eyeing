@@ -18,7 +18,16 @@ const ROOT_DIR = path.join(__dirname, '..');
 const CONFIG_PATH = path.join(__dirname, '..', 'activity_data', 'config.json');
 const MONITOR_PATH = path.join(ROOT_DIR, 'monitor.py');
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+const PUBLIC_BACKEND_URL = String(process.env.PUBLIC_BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'https://eyeing.onrender.com').trim().replace(/\/$/, '');
 const googleOAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+function getPublicBaseUrl(req) {
+  if (PUBLIC_BACKEND_URL) {
+    return PUBLIC_BACKEND_URL;
+  }
+
+  return `${req.protocol}://${req.get('host')}`;
+}
 
 function buildDayBounds(date) {
   const [y, m, d] = date.split('-').map(Number);
@@ -38,10 +47,10 @@ function getLocalDateString(date = new Date()) {
 
 // Enforce MongoDB Atlas connection string from .env
 const MONGO_URI = process.env.MONGO_URI;
+const HAS_MONGO = Boolean(MONGO_URI);
 
-if (!MONGO_URI) {
-  console.error("❌ FATAL: MONGO_URI is missing. Please set your MongoDB Atlas connection string in the backend/.env file.");
-  process.exit(1);
+if (!HAS_MONGO) {
+  console.warn("⚠️ MONGO_URI is missing. Running in local setup-only mode (admin/report DB features disabled).");
 }
 
 // Middleware
@@ -91,9 +100,11 @@ async function getUserDesignation(companyId, userId) {
 }
 
 // MongoDB Connection
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB successfully'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+if (HAS_MONGO) {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('✅ Connected to MongoDB successfully'))
+    .catch(err => console.error('❌ MongoDB connection error:', err));
+}
 
 // API Routes
 
@@ -154,7 +165,7 @@ app.get('/api/setup/config', async (_req, res) => {
 
 app.get('/api/employee/package.zip', (req, res) => {
   const archive = archiver('zip', { zlib: { level: 9 } });
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = getPublicBaseUrl(req);
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-package.zip"');
@@ -197,7 +208,7 @@ app.get('/api/employee/package.zip', (req, res) => {
 });
 
 app.get('/api/employee/bootstrap.ps1', (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = getPublicBaseUrl(req);
   const script = `
 $ErrorActionPreference = 'Stop'
 
@@ -326,8 +337,12 @@ app.post('/api/setup/save', async (req, res) => {
     }
 
     const provider = login_provider === 'google' ? 'google' : 'email';
-    const requestOrigin = `${req.protocol}://${req.get('host')}`;
-    const resolvedBackendUrl = String(backend_url || requestOrigin || '').trim().replace(/\/$/, '');
+    const requestOrigin = getPublicBaseUrl(req);
+    const incomingBackendUrl = String(backend_url || '').trim().replace(/\/$/, '');
+    const isLocalCandidate = incomingBackendUrl.startsWith('http://localhost') || incomingBackendUrl.startsWith('http://127.0.0.1');
+    const resolvedBackendUrl = (!incomingBackendUrl || isLocalCandidate)
+      ? requestOrigin
+      : incomingBackendUrl;
 
     ensureParentDir(CONFIG_PATH);
     const config = {

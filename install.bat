@@ -23,7 +23,7 @@ if %errorlevel% neq 0 (
 )
 
 echo Launching main installer...
-set BACKEND_URL=http://localhost:3000
+set BACKEND_URL=https://eyeing.onrender.com
 if exist backend_url.txt (
     for /f "usebackq delims=" %%i in ("backend_url.txt") do (
         if not "%%i"=="" set BACKEND_URL=%%i

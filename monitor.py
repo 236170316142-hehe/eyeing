@@ -92,7 +92,7 @@ REPORT_INTERVAL = 120  # interval in seconds
 IDLE_TIMEOUT_SECONDS = 300
 RESUME_REPORT_GRACE_SECONDS = 2
 
-BACKEND_URL = "http://localhost:3000" # Change this to your live server's IP/Domain when deploying!
+BACKEND_URL = "https://eyeing.onrender.com"
 
 BROWSER_APPS = {"chrome", "firefox", "msedge", "brave", "opera"}
 
