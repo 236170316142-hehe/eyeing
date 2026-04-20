@@ -502,14 +502,21 @@ app.post('/api/admin/toggle-tracking', async (req, res) => {
 app.get('/api/admin/trackers', async (req, res) => {
   try {
     // Show all trackers, even those pending decommission deletion
-    const trackers = await TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt').sort({ company_id: 1, user_id: 1 });
+    const trackers = await TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt')
+      .sort({ company_id: 1, user_id: 1 })
+      .lean();
 
     const trackersWithDesignation = await Promise.all(
       trackers.map(async (tracker) => {
-        const designation = await getUserDesignation(tracker.company_id, tracker.user_id);
+        let designation = '';
+        try {
+          designation = await getUserDesignation(tracker.company_id, tracker.user_id);
+        } catch (designationError) {
+          console.warn('[!] Could not resolve designation for tracker:', tracker.company_id, tracker.user_id, designationError?.message || designationError);
+        }
 
         return {
-          ...tracker.toObject(),
+          ...tracker,
           designation
         };
       })
@@ -518,7 +525,8 @@ app.get('/api/admin/trackers', async (req, res) => {
     res.json(trackersWithDesignation);
   } catch (error) {
     console.error('[-] Error fetching trackers list:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    // Keep admin page usable even if DB temporarily fails.
+    res.json([]);
   }
 });
 
