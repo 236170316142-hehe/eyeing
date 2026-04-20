@@ -6,6 +6,8 @@ const trackingStatusSchema = new mongoose.Schema({
   is_tracking_active: { type: Boolean, default: true },
   is_decommissioned: { type: Boolean, default: false },
   report_interval: { type: Number, default: 120 },
+  last_seen_at: { type: Date, default: null },
+  decommission_requested_at: { type: Date, default: null },
   last_updated_by: { type: String, default: 'admin' }
 }, { timestamps: true });
 

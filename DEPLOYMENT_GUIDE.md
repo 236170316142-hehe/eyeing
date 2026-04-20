@@ -17,6 +17,8 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
     - Start Command: `npm start`
 4. Add environment variables in Render:
     - `MONGO_URI` (required)
+    - `ADMIN_USERNAME` (required for admin access lock)
+    - `ADMIN_PASSWORD` (required for admin access lock)
     - `GOOGLE_CLIENT_ID` (optional)
     - `NVIDIA_API_KEY` or `LLM_API_KEY` (optional)
 5. Deploy and note your public URL, for example:
@@ -45,6 +47,7 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
     ```
 5.  **Access Admin Dashboard:**
     Open your browser to `http://<server-ip>:3000/admin.html`.
+    You will be prompted for `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
 
 ---
 
@@ -105,6 +108,7 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
     *   The remote PC will remove its startup trigger.
     *   It will unlock the folder and delete itself permanently.
     *   The backend will wipe all reports and history for that user from the cloud database.
+    *   If the employee device is offline, uninstall completes on its next check-in.
 
 ---
 

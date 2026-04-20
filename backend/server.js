@@ -5,6 +5,7 @@ const cors = require('cors');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const archiver = require('archiver');
 const { spawn } = require('child_process');
 const { OAuth2Client } = require('google-auth-library');
@@ -19,6 +20,9 @@ const CONFIG_PATH = path.join(__dirname, '..', 'activity_data', 'config.json');
 const MONITOR_PATH = path.join(ROOT_DIR, 'monitor.py');
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || '').trim();
 const PUBLIC_BACKEND_URL = String(process.env.PUBLIC_BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'https://eyeing.onrender.com').trim().replace(/\/$/, '');
+const ADMIN_USERNAME = String(process.env.ADMIN_USERNAME || '').trim();
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
+const HAS_ADMIN_AUTH = Boolean(ADMIN_USERNAME && ADMIN_PASSWORD);
 const googleOAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 function getPublicBaseUrl(req) {
@@ -56,6 +60,56 @@ if (!HAS_MONGO) {
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left));
+  const b = Buffer.from(String(right));
+
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function parseBasicAuthHeader(headerValue) {
+  if (!headerValue || !headerValue.startsWith('Basic ')) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(headerValue.slice(6), 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    if (separator < 0) return null;
+
+    return {
+      username: decoded.slice(0, separator),
+      password: decoded.slice(separator + 1)
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function requireAdminAuth(req, res, next) {
+  if (!HAS_ADMIN_AUTH) {
+    return res.status(503).json({
+      error: 'Admin access is not configured on server. Set ADMIN_USERNAME and ADMIN_PASSWORD.'
+    });
+  }
+
+  const parsed = parseBasicAuthHeader(req.headers.authorization || '');
+  if (!parsed || !safeEqual(parsed.username, ADMIN_USERNAME) || !safeEqual(parsed.password, ADMIN_PASSWORD)) {
+    res.set('WWW-Authenticate', 'Basic realm="Employee Admin"');
+    return res.status(401).json({ error: 'Admin authentication required.' });
+  }
+
+  next();
+}
+
+// Protect admin surfaces so URL manipulation by employees cannot bypass access controls.
+app.use('/admin.html', requireAdminAuth);
+app.use('/api/admin', requireAdminAuth);
+app.use('/api/reports/hierarchy', requireAdminAuth);
+app.use('/api/reports/employee', requireAdminAuth);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 function ensureParentDir(filePath) {
@@ -526,7 +580,19 @@ app.get('/api/tracking-status', async (req, res) => {
     // Upsert the status so new users default to true (active)
     const status = await TrackingStatus.findOneAndUpdate(
       { company_id, user_id },
-      { $setOnInsert: { company_id, user_id, is_tracking_active: true, report_interval: 120 } },
+      {
+        $setOnInsert: {
+          company_id,
+          user_id,
+          is_tracking_active: true,
+          is_decommissioned: false,
+          report_interval: 120,
+          last_updated_by: 'tracker-poll'
+        },
+        $set: {
+          last_seen_at: new Date()
+        }
+      },
       { new: true, upsert: true }
     );
 
@@ -647,11 +713,27 @@ app.post('/api/admin/decommission', async (req, res) => {
     }
     const updated = await TrackingStatus.findOneAndUpdate(
       { company_id, user_id },
-      { is_decommissioned: true, is_tracking_active: false },
+      {
+        is_decommissioned: true,
+        is_tracking_active: false,
+        decommission_requested_at: new Date(),
+        last_updated_by: 'admin-decommission'
+      },
       { new: true, upsert: true }
     );
+
+    const lastSeenAt = updated?.last_seen_at ? new Date(updated.last_seen_at) : null;
+    const staleCutoffMs = 5 * 60 * 1000;
+    const offlineWarning = !lastSeenAt || (Date.now() - lastSeenAt.getTime()) > staleCutoffMs
+      ? 'Device has not checked in recently. Uninstall will complete when that PC is online and monitor is running.'
+      : '';
+
     console.log(`[Admin] DECOMMISSIONED tracker for ${user_id} @ ${company_id}`);
-    res.json({ message: "Tracker marked for decommissioning. It will self-delete and confirm on next check-in.", status: updated });
+    res.json({
+      message: "Tracker marked for decommissioning. It will self-delete and confirm on next check-in.",
+      offlineWarning: offlineWarning || undefined,
+      status: updated
+    });
   } catch (error) {
     console.error('[-] Error decommissioning:', error);
     res.status(500).json({ error: 'Internal Server Error' });

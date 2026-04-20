@@ -1713,7 +1713,9 @@
           body: JSON.stringify({ company_id: compId, user_id: userId })
         });
         if (!response.ok) throw new Error();
-        showToast(`Kill order sent to ${userId}. Waiting for device confirmation...`);
+        const data = await response.json();
+        const warn = data?.offlineWarning ? ` ${data.offlineWarning}` : '';
+        showToast(`Kill order sent to ${userId}. Waiting for device confirmation...${warn}`);
         // Reload the tracker list so the row shows "UNINSTALLING..." state
         await loadTrackers();
       } catch {
