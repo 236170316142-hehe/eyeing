@@ -1591,6 +1591,27 @@
         }
         
         if (!reports || reports.length === 0) {
+          let diagnosticHtml = '';
+          try {
+            const statsResp = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}/stats`);
+            if (statsResp.ok) {
+              const statsData = await statsResp.json();
+              const totalReports = Number(statsData?.total_reports || 0);
+              const latestEventAt = statsData?.latest_event_at ? new Date(statsData.latest_event_at) : null;
+
+              if (totalReports > 0) {
+                const latestDate = latestEventAt && !Number.isNaN(latestEventAt.getTime())
+                  ? latestEventAt.toLocaleDateString()
+                  : 'an earlier date';
+                diagnosticHtml = `<div style="margin-top: 12px; color: #93c5fd; font-size: 0.92rem;">No logs for selected date <b>${date}</b>. This user has <b>${totalReports}</b> total report(s), latest on <b>${latestDate}</b>. Pick that date to view logs.</div>`;
+              } else {
+                diagnosticHtml = `<div style="margin-top: 12px; color: #fbbf24; font-size: 0.92rem;">No reports uploaded yet for this user/company. Ensure monitor is running on employee PC and setup IDs exactly match this row.</div>`;
+              }
+            }
+          } catch (_statsErr) {
+            // Keep modal usable even if stats call fails.
+          }
+
           const similarTrackers = await findSimilarTrackers(compId, userId);
           const suggestionHtml = similarTrackers.length
             ? `<div style="margin-top: 16px; padding: 16px; border: 1px solid rgba(59,130,246,0.25); border-radius: 12px; background: rgba(59,130,246,0.08); text-align: left;">
@@ -1602,7 +1623,7 @@
                </div>`
             : '';
 
-          reportList.innerHTML = `<div style="text-align:center; padding: 24px; color: #94a3b8">No records found for this date.</div>${suggestionHtml}`;
+          reportList.innerHTML = `<div style="text-align:center; padding: 24px; color: #94a3b8">No records found for this date.</div>${diagnosticHtml}${suggestionHtml}`;
           stats.textContent = `Showing 0 reports · Refreshed at ${new Date().toLocaleTimeString()}`;
           window.currentReports = [];
           window._currentReportsDate = date;

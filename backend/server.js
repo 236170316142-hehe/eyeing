@@ -569,6 +569,45 @@ app.get('/api/reports/employee/:company_id/:user_id/range', async (req, res) => 
   }
 });
 
+// 2d. Fetch report stats for a specific employee (all-time count + latest event)
+app.get('/api/reports/employee/:company_id/:user_id/stats', async (req, res) => {
+  try {
+    const { company_id, user_id } = req.params;
+
+    const result = await Report.aggregate([
+      { $match: { company_id, user_id } },
+      {
+        $addFields: {
+          eventAt: {
+            $ifNull: [
+              { $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null } },
+              '$createdAt'
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total_reports: { $sum: 1 },
+          latest_event_at: { $max: '$eventAt' }
+        }
+      }
+    ]);
+
+    const stats = result[0] || { total_reports: 0, latest_event_at: null };
+    res.json({
+      company_id,
+      user_id,
+      total_reports: stats.total_reports || 0,
+      latest_event_at: stats.latest_event_at || null
+    });
+  } catch (error) {
+    console.error('[-] Error fetching employee report stats:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // 3. Check if tracking is authorized for a specific user
 app.get('/api/tracking-status', async (req, res) => {
   try {
