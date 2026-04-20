@@ -1,0 +1,14 @@
+[Unit]
+Description=Eyeingggg Monitor Service
+After=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/eyeingggg
+ExecStart=/usr/bin/python3 /home/YOUR_USER/eyeingggg/monitor.py --headless --silent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

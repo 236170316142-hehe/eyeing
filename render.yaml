@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: employee-activity-monitor
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /admin.html
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: MONGO_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false

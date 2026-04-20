@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Tracker Control Center</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --primary: #3b82f6;
+      --success: #10b981;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.1);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+    
+    body {
+      background: var(--bg);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.1) 0px, transparent 50%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    .glass-panel {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      width: 100%;
+      max-width: 1000px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    h1 { font-weight: 700; font-size: 2rem; margin-bottom: 8px; text-align: center; }
+    p.subtitle { color: var(--text-muted); text-align: center; margin-bottom: 32px; font-weight: 300; }
+
+    /* Table Styles */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      padding: 16px;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+    }
+
+    td {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.95rem;
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    /* The Switch Mini */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--danger);
+      transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 44px;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .slider:before {
+      position: absolute; content: "";
+      height: 20px; width: 20px; left: 4px; bottom: 4px;
+      background-color: white;
+      transition: .4s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    input:checked + .slider { background-color: var(--success); }
+    input:checked + .slider:before { transform: translateX(22px); }
+    
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .status-active { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .status-paused { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+    .toast {
+      position: fixed; bottom: 30px; padding: 12px 24px; border-radius: 50px;
+      background: white; color: black; font-weight: 600; font-size: 0.9rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      transform: translateY(100px); opacity: 0; transition: all 0.4s ease;
+      left: 50%; transform: translateX(-50%) translateY(100px);
+      z-index: 9999;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    .refresh-btn {
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: 'Outfit';
+      transition: all 0.2s;
+      float: right;
+      margin-bottom: 12px;
+    }
+    .refresh-btn:hover { background: rgba(255,255,255,0.2); }
+
+    .btn-action {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-view { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .btn-view:hover { background: rgba(59, 130, 246, 0.25); }
+
+    .btn-decommission { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .btn-decommission:hover { background: rgba(239, 68, 68, 0.25); }
+
+    /* Modal Styles */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+      display: none; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      width: 90%;
+      max-width: 900px;
+      max-height: 85vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 20px 30px;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex-grow: 1;
+    }
+    .close-btn {
+      font-size: 1.5rem; cursor: pointer; color: var(--text-muted);
+    }
+    
+    .report-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 10px;
+    }
+    .report-card h4 { color: var(--primary); margin-bottom: 5px; font-size: 0.9rem; }
+    .report-meta { font-size: 0.8rem; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    
+    .badge-quality { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+    .q-good { background: #065f46; color: #34d399; }
+    .q-fair { background: #92400e; color: #fbbf24; }
+    .q-poor { background: #991b1b; color: #f87171; }
+
+    /* Chatbot Styles */
+    .chat-trigger {
+      position: fixed; bottom: 30px; right: 30px;
+      width: 60px; height: 60px; border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.3s; z-index: 999;
+      font-size: 24px;
+    }
+    .chat-trigger:hover { transform: scale(1.1) rotate(5deg); }
+
+    .chat-window {
+      position: fixed; bottom: 100px; right: 30px;
+      width: 380px; height: 500px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      display: none; flex-direction: column;
+      z-index: 1000; overflow: hidden;
+      animation: chatIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes chatIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .chat-header {
+      padding: 15px 20px; background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .chat-messages {
+      flex-grow: 1; padding: 20px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { padding: 12px 16px; border-radius: 14px; max-width: 90%; font-size: 0.95rem; line-height: 1.6; word-wrap: break-word; }
+    .msg-bot { background: rgba(255,255,255,0.06); color: var(--text); align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid rgba(255,255,255,0.05); }
+    .msg-bot p { margin-bottom: 12px; }
+    .msg-bot ul, .msg-bot ol { margin-left: 20px; margin-bottom: 12px; }
+    .msg-bot h1, .msg-bot h2, .msg-bot h3 { font-size: 1.1rem; margin: 15px 0 8px 0; color: var(--primary); }
+    .msg-bot strong { color: #fff; font-weight: 700; }
+    .msg-bot code { background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
+    .msg-user { background: var(--primary); color: white; align-self: flex-end; border-bottom-right-radius: 2px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+    .chat-visual-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .chat-kpi {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 8px;
+    }
+    .chat-kpi .label { color: var(--text-muted); font-size: 0.72rem; }
+    .chat-kpi .value { color: var(--text); font-weight: 700; font-size: 0.92rem; margin-top: 2px; }
+    .chat-suggest-list { margin-top: 10px; display: grid; gap: 6px; }
+    .chat-suggest-item {
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.22);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+    .chat-bar-track { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); margin-top: 4px; overflow: hidden; }
+    .chat-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3b82f6, #10b981); }
+
+    /* Tab & Insights Styles */
+    .btn-tab {
+      background: transparent; border: none; color: var(--text-muted);
+      padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+    .active-tab { background: var(--primary); color: white; }
+    
+    .insights-panel { display: none; padding: 20px; }
+    .insights-card {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 15px; padding: 25px; margin-bottom: 20px;
+    }
+    .insights-header { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+    .avatar-circle {
+      width: 45px; height: 45px; background: #10b981; color: white;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 1.2rem;
+    }
+    .insights-content h3 { color: #10b981; margin: 25px 0 10px 0; font-size: 1rem; }
+    .insights-content p { color: var(--text); line-height: 1.6; margin-bottom: 10px; }
+    .insights-content ul { list-style: none; padding: 0; }
+    .insights-content li {
+      background: rgba(255,255,255,0.03); padding: 12px 15px; border-radius: 10px;
+      margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);
+      position: relative; padding-left: 40px;
+    }
+    .insights-content li::before {
+      content: '🕒'; position: absolute; left: 15px;
+    }
+    .badge-cached {
+      background: rgba(16, 185, 129, 0.1); color: #10b981;
+      padding: 3px 8px; border-radius: 6px; font-size: 0.7rem;
+    }
+
+    /* Productivity Metrics Bars */
+    .metric-row { margin-bottom: 20px; }
+    .metric-labels { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem; color: var(--text-muted); }
+    .metric-val { color: white; font-weight: bold; }
+    .progress-bg { height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #10b981; border-radius: 4px; transition: width 1s ease-in-out; }
+    .bar-purple { background: #a855f7; }
+    .bar-blue { background: #3b82f6; }
+
+    .ai-insight-box {
+      background: rgba(59, 130, 246, 0.05); border-radius: 12px; padding: 20px;
+      border: 1px solid rgba(59, 130, 246, 0.1); margin-top: 25px;
+    }
+    .ai-insight-title { color: #3b82f6; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
+    .ai-insight-text { font-size: 0.9rem; color: var(--text); line-height: 1.5; }
+
+    .performance-dashboard {
+      display: grid;
+      grid-template-columns: 1.1fr 1.9fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .score-card, .ai-summary-card, .chart-card, .heatmap-card, .donut-card, .worktype-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+    }
+    .score-card { display: flex; flex-direction: column; justify-content: space-between; min-height: 220px; padding: 16px; }
+    .score-ring-wrap { display: flex; align-items: center; justify-content: center; padding: 10px 0 6px; }
+    .score-ring {
+      width: 150px; height: 150px; border-radius: 50%;
+      background: conic-gradient(#3b82f6 0deg, #3b82f6 var(--score-angle), rgba(255,255,255,0.08) var(--score-angle), rgba(255,255,255,0.08) 360deg);
+      display: grid; place-items: center;
+      position: relative;
+      box-shadow: inset 0 0 0 14px rgba(15, 23, 42, 0.95);
+    }
+    .score-ring::after {
+      content: '';
+      position: absolute;
+      inset: 14px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, rgba(15,23,42,0.95), rgba(15,23,42,0.72));
+      z-index: 0;
+    }
+    .score-ring-content {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+    }
+    .score-number { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    .score-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; }
+    .insight-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .insight-chip {
+      padding: 7px 10px; border-radius: 999px; font-size: 0.75rem;
+      background: rgba(59,130,246,0.12); color: #bfdbfe; border: 1px solid rgba(59,130,246,0.18);
+    }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr;
+      gap: 14px;
+    }
+    .chart-card h4, .worktype-card h4, .heatmap-card h4, .donut-card h4, .ai-summary-card h4 { margin: 0 0 10px 0; color: var(--text); }
+    .dashboard-chart { width: 100%; height: 220px; }
+    .dashboard-chart.tall { height: 240px; }
+    .subtle-note { color: var(--text-muted); font-size: 0.78rem; margin-top: 6px; }
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: 60px repeat(7, minmax(0, 1fr));
+      gap: 6px;
+      align-items: stretch;
+      margin-top: 10px;
+    }
+    .heatmap-grid .axis-label {
+      font-size: 0.72rem; color: var(--text-muted); display:flex; align-items:center; justify-content:flex-end; padding-right: 6px;
+    }
+    .heatmap-day-label {
+      font-size: 0.72rem; color: var(--text-muted); text-align:center; margin-bottom: 6px;
+    }
+    .heatmap-cell {
+      height: 22px; border-radius: 6px; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .heatmap-cell[data-level='1'] { background: rgba(16,185,129,0.16); }
+    .heatmap-cell[data-level='2'] { background: rgba(16,185,129,0.28); }
+    .heatmap-cell[data-level='3'] { background: rgba(16,185,129,0.42); }
+    .heatmap-cell[data-level='4'] { background: rgba(16,185,129,0.62); }
+    .heatmap-legend { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top: 10px; font-size: 0.72rem; color: var(--text-muted); }
+    .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+    .app-breakdown { display:grid; grid-template-columns: minmax(220px, 1fr) 1fr; gap: 14px; align-items: center; min-height: 240px; }
+    .app-list { display:flex; flex-direction:column; gap: 8px; }
+    .app-row {
+      display:grid; grid-template-columns: 90px 1fr 52px; gap: 8px; align-items:center;
+      font-size: 0.8rem;
+    }
+    .app-row .name { color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .app-row .bar-track { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow:hidden; }
+    .app-row .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3b82f6, #10b981); }
+    .mini-stat-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .mini-stat { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 10px; }
+    .mini-stat .label { color: var(--text-muted); font-size: 0.72rem; margin-bottom: 4px; }
+    .mini-stat .value { font-weight: 700; font-size: 0.95rem; }
+    .trend-summary { display:flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .trend-pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.05); color: var(--text-muted); font-size: 0.75rem; }
+    @media (max-width: 900px) {
+      .performance-dashboard, .dashboard-grid, .app-breakdown { grid-template-columns: 1fr; }
+      .heatmap-grid { grid-template-columns: 42px repeat(7, minmax(0, 1fr)); }
+    }
+
+    #appUsageChart { width: 100% !important; height: 220px !important; }
+    #trendChart, #workTypeChart { width: 100% !important; height: 220px !important; }
+    
+    .chat-input-area {
+      padding: 15px; border-top: 1px solid var(--border);
+      display: flex; gap: 10px;
+    }
+    .chat-input {
+      flex-grow: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 12px; color: white; outline: none; font-size: 0.85rem;
+    }
+    .chat-send {
+      background: var(--primary); color: white; border: none; padding: 0 15px; border-radius: 10px; cursor: pointer;
+    }
+
+  </style>
+</head>
+<body>
+
+  <div class="glass-panel">
+    <h1>Tracker Directory</h1>
+    <p class="subtitle">Global Control Center for All Registered Users</p>
+    
+    <div style="overflow: hidden; display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px;">
+      <a href="/employee-distribution.html" target="_blank" class="refresh-btn" style="float:none; margin-bottom: 0; text-decoration:none; display:inline-flex; align-items:center;">📦 Employee Package</a>
+      <button class="refresh-btn" onclick="loadTrackers()" style="float:none; margin-bottom: 0;">↻ Refresh List</button>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>User</th>
+            <th>Designation</th>
+            <th>Status</th>
+            <th>Freq (s)</th>
+            <th>Monitor</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="trackerTableBody">
+          <tr>
+            <td colspan="7" style="text-align: center; color: var(--text-muted);">Loading trackers...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal for Reports -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h2 id="modalTitle" style="margin:0">Employee Activity History</h2>
+          <div id="modalStats" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;"></div>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+          <div style="display: flex; gap: 5px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 8px;">
+            <button onclick="switchTab('logs')" id="tab-logs" class="btn-tab active-tab">📑 Logs</button>
+            <button onclick="switchTab('insights')" id="tab-insights" class="btn-tab">💡 Insights</button>
+          </div>
+          <input type="date" id="modalDate" onchange="onDateChange()" 
+                 style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: white;
+                        padding: 6px 12px; border-radius: 8px; font-size: 0.8rem; outline: none;">
+          <input type="text" id="reportFilter" placeholder="Filter by app or title..." 
+                 style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: white;
+                        padding: 8px 15px; border-radius: 20px; font-size: 0.85rem; width: 220px;"
+                 oninput="filterReports()">
+          <span class="close-btn" onclick="toggleModal(false)">&times;</span>
+        </div>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="font-size: 0.9rem; color: var(--text-muted);">Activity Intensity</h4>
+            <div style="display: flex; gap: 5px; background: rgba(0,0,0,0.2); padding: 3px; border-radius: 8px;">
+              <button onclick="changeChartScale('recent')" id="btn-recent" style="border:none; padding: 4px 10px; border-radius: 6px; cursor:pointer; font-size: 0.75rem; background: var(--primary); color: white;">Recent</button>
+              <button onclick="changeChartScale('history')" id="btn-history" style="border:none; padding: 4px 10px; border-radius: 6px; cursor:pointer; font-size: 0.75rem; background:transparent; color: var(--text-muted);">History</button>
+            </div>
+          </div>
+          <canvas id="performanceChart" style="max-height: 200px;"></canvas>
+        </div>
+        <div id="reportList">
+          <!-- Reports load here -->
+        </div>
+
+        <div id="insightsPanel" class="insights-panel">
+          <div class="performance-dashboard">
+            <div class="score-card">
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom: 10px;">
+                  <div>
+                    <h4 style="margin:0;">Overall Performance Score</h4>
+                    <div class="subtle-note">Activity, consistency, and engagement combined.</div>
+                  </div>
+                  <button onclick="fetchSummary(true)" class="btn-action" style="padding: 5px 12px; font-size: 0.75rem;">🔄 Regenerate</button>
+                </div>
+                <div class="score-ring-wrap">
+                  <div class="score-ring" id="scoreRing" style="--score-angle: 0deg;">
+                    <div class="score-ring-content">
+                      <div class="score-number" id="scoreNumber">0</div>
+                      <div class="score-label">/ 100</div>
+                    </div>
+                  </div>
+                </div>
+                <div id="scoreNote" class="subtle-note" style="text-align:center; margin-top: 8px;">Waiting for activity data.</div>
+              </div>
+              <div class="insight-chips" id="scoreChips"></div>
+            </div>
+
+            <div class="ai-summary-card">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom: 10px;">
+                <div>
+                  <h4 style="margin:0;">AI Insight Summary</h4>
+                  <div class="subtle-note" id="insName">Employee Name</div>
+                </div>
+                <span class="badge-cached" id="insCached" style="display:none">Cached</span>
+              </div>
+              <div class="trend-summary" id="insightPills"></div>
+              <div id="aiSummaryText" style="line-height:1.6; color: var(--text);">
+                Select a date to generate the performance summary.
+              </div>
+              <div class="mini-stat-grid">
+                <div class="mini-stat">
+                  <div class="label">Peak productivity</div>
+                  <div class="value" id="peakWindow">--</div>
+                </div>
+                <div class="mini-stat">
+                  <div class="label">Low engagement</div>
+                  <div class="value" id="lowWindow">--</div>
+                </div>
+                <div class="mini-stat">
+                  <div class="label">Top app</div>
+                  <div class="value" id="topApp">--</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <div class="chart-card">
+              <h4>Daily Productivity Trend</h4>
+              <div class="subtle-note">Refined view of active hours only.</div>
+              <div class="trend-summary" id="trendStats"></div>
+              <canvas id="trendChart" class="dashboard-chart tall"></canvas>
+            </div>
+            <div class="worktype-card">
+              <h4>Work Type Mix</h4>
+              <div class="subtle-note">Stacked by hour blocks: typing, mouse, and reading.</div>
+              <canvas id="workTypeChart" class="dashboard-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="dashboard-grid" style="margin-top: 18px;">
+            <div class="heatmap-card">
+              <h4>Weekly Heatmap</h4>
+              <div class="subtle-note">Days vs hours, color scaled by activity intensity.</div>
+              <div id="heatmapDays" class="heatmap-day-label" style="display:grid; grid-template-columns: 60px repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px;">
+                <div></div>
+                <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+              </div>
+              <div id="heatmapGrid" class="heatmap-grid"></div>
+              <div class="heatmap-legend">
+                <span>Low</span>
+                <span class="legend-swatch" style="background: rgba(16,185,129,0.12);"></span>
+                <span class="legend-swatch" style="background: rgba(16,185,129,0.28);"></span>
+                <span class="legend-swatch" style="background: rgba(16,185,129,0.48);"></span>
+                <span class="legend-swatch" style="background: rgba(16,185,129,0.72);"></span>
+                <span>High</span>
+              </div>
+            </div>
+            <div class="donut-card">
+              <h4>App Usage Breakdown</h4>
+              <div class="subtle-note">Share of active time by application.</div>
+              <div class="app-breakdown">
+                <canvas id="appUsageChart" style="max-height: 250px;"></canvas>
+                <div class="app-list" id="appLegend"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ai-summary-card" style="margin-top: 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+              <h4 style="margin:0;">Detailed Summary</h4>
+              <span id="insAnalyzed" style="background: rgba(255,255,255,0.05); padding: 5px 15px; border-radius: 20px; font-size: 0.75rem; color: var(--text-muted)">0 characters analyzed</span>
+            </div>
+            <div id="insContent" class="insights-content">
+              <div style="text-align:center; padding: 50px; color: var(--text-muted);">
+                Analyzing user activity logs for today...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Status updated</div>
+
+  <div class="chat-trigger" onclick="toggleChat()">💬</div>
+  <div class="chat-window" id="chatWin">
+    <div class="chat-header">
+      <h3 style="font-size: 1rem;">Performance Chatbot</h3>
+      <span style="cursor:pointer" onclick="toggleChat()">&times;</span>
+    </div>
+    <div class="chat-messages" id="chatMsgs">
+      <div class="msg msg-bot">Hello! I'm your performance analyst. Ask me about any employee's work patterns.</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" class="chat-input" id="chatInput" placeholder="Ask about company or user performance..." onkeypress="if(event.key==='Enter') sendChat()">
+      <button class="chat-send" onclick="sendChat()">➤</button>
+    </div>
+  </div>
+
+  <script>
+    function toggleChat() {
+      const win = document.getElementById('chatWin');
+      win.style.display = win.style.display === 'flex' ? 'none' : 'flex';
+      if(win.style.display === 'flex') document.getElementById('chatInput').focus();
+    }
+
+    async function sendChat() {
+      const input = document.getElementById('chatInput');
+      const msgs = document.getElementById('chatMsgs');
+      const text = input.value.trim();
+      if(!text) return;
+
+      // Add user message
+      const uMsg = document.createElement('div');
+      uMsg.className = 'msg msg-user';
+      uMsg.textContent = text;
+      msgs.appendChild(uMsg);
+      input.value = '';
+      msgs.scrollTop = msgs.scrollHeight;
+
+      // Add bot "typing"
+      const bMsg = document.createElement('div');
+      bMsg.className = 'msg msg-bot';
+      bMsg.textContent = '...Analyzing logs from database...';
+      msgs.appendChild(bMsg);
+
+      try {
+        const response = await fetch('/api/admin/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            message: text,
+            company_id: _currentModalCompId || "Cord4 Tech", // Use open modal context or default
+            user_id: _currentModalUserId || "0001"
+          })
+        });
+        const data = await response.json();
+        const aiAnswer = data.answer || data.error || "Sorry, I encountered an error.";
+        const chatReports = await getChatContextReports();
+        const visualBlock = renderChatVisualBlock(chatReports, _currentModalDesignation);
+        bMsg.innerHTML = marked.parse(aiAnswer) + visualBlock;
+      } catch (err) {
+        bMsg.textContent = "Connection error. Is the server running?";
+      }
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    async function getChatContextReports() {
+      const compId = _currentModalCompId || 'Cord4 Tech';
+      const userId = _currentModalUserId || '0001';
+      const pickedDate = document.getElementById('modalDate')?.value || getLocalDateString();
+
+      if (Array.isArray(window.currentReports) && window._currentReportsDate === pickedDate) {
+        return window.currentReports;
+      }
+
+      try {
+        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${pickedDate}`);
+        if (!response.ok) return [];
+        const reports = await response.json();
+        return Array.isArray(reports) ? reports : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    function getRoleSuggestions(designation, metrics) {
+      const role = String(designation || '').toLowerCase();
+      const suggestions = [];
+
+      if (role.includes('intern') || role.includes('trainee')) {
+        suggestions.push('Keep a daily learning log with one model/concept and one practical output.');
+        suggestions.push('Split the day into build, debug, and review blocks to improve delivery speed.');
+      }
+      if (role.includes('ai') || role.includes('ml') || role.includes('data')) {
+        suggestions.push('Allocate at least one focused session for experiment tracking and result notes.');
+        suggestions.push('Add a short validation checklist after each model/code change to reduce rework.');
+      }
+      if (role.includes('developer') || role.includes('engineer')) {
+        suggestions.push('Reduce context switches by batching coding tasks into 60-90 minute deep-work windows.');
+      }
+      if (role.includes('designer')) {
+        suggestions.push('Time-box ideation vs execution to keep design throughput consistent.');
+      }
+      if (role.includes('manager') || role.includes('lead')) {
+        suggestions.push('Reserve fixed windows for review/coordination to minimize meeting fragmentation.');
+      }
+
+      if (metrics.focusRatio < 60) {
+        suggestions.push('Focus ratio is low today: use 25-5 cycles and pause non-essential browsing during focus windows.');
+      }
+      if (metrics.activeMinutes < 90) {
+        suggestions.push('Active work time is limited: schedule two protected deep-work blocks in the next session.');
+      }
+
+      if (!suggestions.length) {
+        suggestions.push('Create 3 priority outcomes for the day and review completion at end of shift.');
+      }
+
+      return suggestions.slice(0, 4);
+    }
+
+    function renderChatVisualBlock(reports, designation) {
+      if (!Array.isArray(reports) || !reports.length) {
+        return '<div class="chat-suggest-item" style="margin-top:10px;">No report data available for visual snapshot.</div>';
+      }
+
+      const activeMinutes = reports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0) / 60;
+      const idleMinutes = reports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0) / 60;
+      const keys = reports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
+      const clicks = reports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
+      const focusRatio = Math.round((activeMinutes / Math.max(1, activeMinutes + idleMinutes)) * 100);
+      const appUsage = buildAppUsage(reports);
+      const topApp = appUsage[0] ? `${appUsage[0].name} (${appUsage[0].pct.toFixed(0)}%)` : 'N/A';
+      const role = (designation || reports.find(report => report.designation)?.designation || 'Not set').trim();
+
+      const metrics = { activeMinutes, idleMinutes, focusRatio };
+      const suggestions = getRoleSuggestions(role, metrics);
+
+      return `
+        <div class="chat-visual-grid">
+          <div class="chat-kpi"><div class="label">Focus Ratio</div><div class="value">${focusRatio}%</div><div class="chat-bar-track"><div class="chat-bar-fill" style="width:${Math.max(4, Math.min(100, focusRatio))}%;"></div></div></div>
+          <div class="chat-kpi"><div class="label">Active Time</div><div class="value">${activeMinutes.toFixed(1)} min</div></div>
+          <div class="chat-kpi"><div class="label">Input Volume</div><div class="value">${keys + clicks}</div></div>
+          <div class="chat-kpi"><div class="label">Top App</div><div class="value">${topApp}</div></div>
+        </div>
+        <div class="chat-suggest-list">
+          ${suggestions.map(item => `<div class="chat-suggest-item">${item}</div>`).join('')}
+        </div>
+      `;
+    }
+
+    let activityChart = null;
+    function renderPerformanceChart(reports) {
+      const canvas = document.getElementById('performanceChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      window._lastReports = reports; // Cache for scale switching
+
+      const byHour = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        label: formatHour(hour),
+        activeMinutes: 0,
+        keys: 0,
+        clicks: 0,
+      }));
+
+      reports.forEach(report => {
+        const moment = getReportMoment(report);
+        if (!moment) return;
+        const bucket = byHour[moment.getHours()];
+        bucket.activeMinutes += Number(report.time_active_sec || 0) / 60;
+        bucket.keys += Number(report.keyboard_key_presses || 0);
+        bucket.clicks += Number(report.mouse_clicks || 0);
+      });
+
+      const withActivity = byHour.filter(point => point.activeMinutes > 0 || point.keys > 0 || point.clicks > 0);
+      const maxKeys = Math.max(...byHour.map(point => point.keys), 1);
+      const maxClicks = Math.max(...byHour.map(point => point.clicks), 1);
+      const maxActive = Math.max(...byHour.map(point => point.activeMinutes), 1);
+
+      const toIndex = (point) => {
+        const keysNorm = (point.keys / maxKeys) * 100;
+        const clicksNorm = (point.clicks / maxClicks) * 100;
+        const activeNorm = (point.activeMinutes / maxActive) * 100;
+        return Math.round((keysNorm * 0.45) + (clicksNorm * 0.25) + (activeNorm * 0.30));
+      };
+
+      let points = [];
+      if (_chartScale === 'history') {
+        const source = withActivity.length ? withActivity.slice(-16) : byHour;
+        points = source.map(point => ({
+          label: point.label,
+          activityIndex: point.activeMinutes > 0 || point.keys > 0 || point.clicks > 0 ? toIndex(point) : 0,
+          focusMinutes: Number(point.activeMinutes.toFixed(2)),
+        }));
+      } else {
+        // Auto-focus on the active day window, keeping one-hour context on both sides.
+        const activeHours = byHour
+          .filter(point => point.activeMinutes > 0 || point.keys > 0 || point.clicks > 0)
+          .map(point => point.hour);
+
+        if (activeHours.length > 0) {
+          const minHour = Math.max(0, Math.min(...activeHours) - 1);
+          const maxHour = Math.min(23, Math.max(...activeHours) + 1);
+          points = byHour.slice(minHour, maxHour + 1).map(point => ({
+            label: point.label,
+            activityIndex: point.activeMinutes > 0 || point.keys > 0 || point.clicks > 0 ? toIndex(point) : 0,
+            focusMinutes: Number(point.activeMinutes.toFixed(2)),
+          }));
+        } else {
+          points = byHour.map(point => ({
+            label: point.label,
+            activityIndex: 0,
+            focusMinutes: Number(point.activeMinutes.toFixed(2)),
+          }));
+        }
+      }
+
+      if (points.length === 0) {
+        points = [{ label: '--', activityIndex: 0, focusMinutes: 0 }];
+      }
+
+      if (activityChart) activityChart.destroy();
+
+      activityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: points.map(point => point.label),
+          datasets: [
+            {
+              type: 'bar',
+              label: 'Focus Minutes',
+              data: points.map(point => point.focusMinutes),
+              yAxisID: 'yFocus',
+              backgroundColor: 'rgba(16, 185, 129, 0.25)',
+              borderRadius: 6,
+              borderSkipped: false,
+              maxBarThickness: 18,
+            },
+            {
+              label: 'Activity Index',
+              data: points.map(point => point.activityIndex),
+              yAxisID: 'yIndex',
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59, 130, 246, 0.18)',
+              fill: true,
+              tension: 0.35,
+              pointRadius: 2,
+              pointHoverRadius: 4,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  const value = Number(context.raw || 0);
+                  return context.dataset.label === 'Focus Minutes'
+                    ? `Focus ${value.toFixed(1)} min`
+                    : `Activity ${Math.round(value)}/100`;
+                }
+              }
+            }
+          },
+          scales: {
+            yIndex: {
+              type: 'linear',
+              position: 'left',
+              min: 0,
+              max: 100,
+              ticks: { color: '#94a3b8', callback: value => `${value}` },
+              grid: { color: 'rgba(255,255,255,0.05)' }
+            },
+            yFocus: {
+              type: 'linear',
+              position: 'right',
+              beginAtZero: true,
+              ticks: { color: '#94a3b8', callback: value => `${value}m` },
+              grid: { drawOnChartArea: false }
+            },
+            x: {
+              grid: { display: false },
+              ticks: {
+                color: '#94a3b8',
+                maxRotation: 35,
+                minRotation: 35,
+                autoSkip: true
+              }
+            }
+          }
+        }
+      });
+    }
+
+    let trendChart = null;
+    let workTypeChart = null;
+    let appUsageChart = null;
+
+    function getReportMoment(report) {
+      const value = report?.eventAt || report?.timestamp || report?.createdAt;
+      const moment = new Date(value);
+      return Number.isNaN(moment.getTime()) ? null : moment;
+    }
+
+    function formatHour(hour) {
+      return new Date(2000, 0, 1, hour, 0, 0, 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatRangeHourLabel(hour) {
+      const next = (hour + 1) % 24;
+      return `${formatHour(hour)}-${formatHour(next)}`;
+    }
+
+    function getLocalDateString(date = new Date()) {
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 10);
+    }
+
+    function getWeekRange(dateValue) {
+      const selected = new Date(`${dateValue}T12:00:00`);
+      const dayIndex = (selected.getDay() + 6) % 7;
+      const start = new Date(selected);
+      start.setDate(selected.getDate() - dayIndex);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+
+    function buildHourlyBuckets(reports) {
+      const buckets = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        label: formatHour(hour),
+        startLabel: formatRangeHourLabel(hour),
+        keyboard_key_presses: 0,
+        mouse_clicks: 0,
+        time_idle_sec: 0,
+        time_active_sec: 0,
+        appTime: 0,
+        reports: 0,
+      }));
+
+      reports.forEach(report => {
+        const moment = getReportMoment(report);
+        if (!moment) return;
+        const bucket = buckets[moment.getHours()];
+        bucket.keyboard_key_presses += Number(report.keyboard_key_presses || 0);
+        bucket.mouse_clicks += Number(report.mouse_clicks || 0);
+        bucket.time_idle_sec += Number(report.time_idle_sec || 0);
+        bucket.time_active_sec += Number(report.time_active_sec || 0);
+        bucket.appTime += Number(report.time_active_sec || 0);
+        bucket.reports += 1;
+      });
+
+      const activeBuckets = buckets.filter(bucket => bucket.reports > 0 || bucket.keyboard_key_presses || bucket.mouse_clicks || bucket.time_active_sec);
+      return { buckets, activeBuckets };
+    }
+
+    function buildAppUsage(reports) {
+      const totals = new Map();
+      let overall = 0;
+      reports.forEach(report => {
+        const name = (report.active_app || 'Unknown').trim() || 'Unknown';
+        const seconds = Number(report.time_active_sec || 0);
+        overall += seconds;
+        totals.set(name, (totals.get(name) || 0) + seconds);
+      });
+
+      return Array.from(totals.entries())
+        .map(([name, seconds]) => ({ name, seconds, pct: overall > 0 ? (seconds / overall) * 100 : 0 }))
+        .sort((a, b) => b.seconds - a.seconds)
+        .slice(0, 6);
+    }
+
+    function buildWeeklyMatrix(reports) {
+      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const matrix = Array.from({ length: 24 }, () => Array.from({ length: 7 }, () => 0));
+
+      reports.forEach(report => {
+        const moment = getReportMoment(report);
+        if (!moment) return;
+        const dayIndex = (moment.getDay() + 6) % 7;
+        const hour = moment.getHours();
+        const intensity = Number(report.time_active_sec || 0) / 60 + Number(report.keyboard_key_presses || 0) * 0.25 + Number(report.mouse_clicks || 0) * 0.35;
+        matrix[hour][dayIndex] += intensity;
+      });
+
+      const max = Math.max(...matrix.flat(), 0) || 1;
+      return { matrix, max, dayLabels };
+    }
+
+    function buildPerformanceMetrics(dailyReports, weeklyReports) {
+      const hourly = buildHourlyBuckets(dailyReports);
+      const appUsage = buildAppUsage(dailyReports);
+
+      const activeMinutes = dailyReports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0) / 60;
+      const idleMinutes = dailyReports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0) / 60;
+      const totalKeys = dailyReports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
+      const totalClicks = dailyReports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
+      const activeHours = hourly.activeBuckets.length;
+      const dailySpan = Math.max(1, hourly.activeBuckets.length ? (hourly.activeBuckets[hourly.activeBuckets.length - 1].hour - hourly.activeBuckets[0].hour + 1) : 1);
+      const consistency = Math.min(100, Math.round((activeHours / Math.max(1, dailySpan)) * 100));
+      const activityScore = Math.min(100, Math.round(activeMinutes * 4));
+      const engagementScore = Math.min(100, Math.round(((totalKeys + totalClicks) / Math.max(1, activeMinutes)) * 2.2));
+      const weeklySpread = weeklyReports.length
+        ? Math.min(100, Math.round((new Set(weeklyReports.map(report => {
+          const moment = getReportMoment(report);
+          return moment ? moment.toDateString() : null;
+        }).filter(Boolean)).size / 7) * 100))
+        : 0;
+      const overall = Math.max(0, Math.min(100, Math.round((activityScore * 0.4) + (consistency * 0.25) + (engagementScore * 0.25) + (weeklySpread * 0.1))));
+
+      const peakBucket = hourly.buckets.reduce((best, bucket) => {
+        const score = (bucket.keyboard_key_presses * 1.4) + (bucket.mouse_clicks * 1.1) + (bucket.time_active_sec / 60);
+        return score > best.score ? { score, bucket } : best;
+      }, { score: -1, bucket: null }).bucket;
+
+      const lowBucket = hourly.buckets
+        .filter(bucket => bucket.reports > 0 || bucket.keyboard_key_presses || bucket.mouse_clicks || bucket.time_idle_sec)
+        .reduce((best, bucket) => {
+          const score = (bucket.keyboard_key_presses * 1.4) + (bucket.mouse_clicks * 1.1) + (bucket.time_active_sec / 60);
+          return score < best.score ? { score, bucket } : best;
+        }, { score: Infinity, bucket: null }).bucket;
+
+      const topApp = appUsage[0];
+      const trendHours = hourly.activeBuckets.map(bucket => bucket.label);
+      const trendProductivity = hourly.activeBuckets.map(bucket => Math.min(100, Math.round((bucket.keyboard_key_presses * 1.35) + (bucket.mouse_clicks * 1.1) + (bucket.time_active_sec / 60) * 1.2)));
+      const trendActivity = hourly.activeBuckets.map(bucket => Math.min(100, Math.round((bucket.time_active_sec / 60) * 8)));
+
+      const typingTotal = hourly.activeBuckets.reduce((sum, bucket) => sum + bucket.keyboard_key_presses, 0);
+      const mouseTotal = hourly.activeBuckets.reduce((sum, bucket) => sum + bucket.mouse_clicks, 0);
+      const readingTotal = hourly.activeBuckets.reduce((sum, bucket) => sum + (bucket.time_idle_sec / 60), 0);
+      const workTotal = typingTotal + mouseTotal + readingTotal || 1;
+      const workType = hourly.activeBuckets.map(bucket => {
+        const typing = bucket.keyboard_key_presses;
+        const mouse = bucket.mouse_clicks;
+        const reading = bucket.time_idle_sec / 60;
+        const total = typing + mouse + reading || 1;
+        return {
+          label: bucket.label,
+          typing: Math.round((typing / total) * 100),
+          mouse: Math.round((mouse / total) * 100),
+          reading: Math.round((reading / total) * 100)
+        };
+      });
+
+      return {
+        overall,
+        activeMinutes,
+        idleMinutes,
+        totalKeys,
+        totalClicks,
+        consistency,
+        activityScore,
+        engagementScore,
+        weeklySpread,
+        peakBucket,
+        lowBucket,
+        topApp,
+        trendHours,
+        trendProductivity,
+        trendActivity,
+        workType,
+        appUsage,
+        dailyHours: hourly,
+        workTotal,
+      };
+    }
+
+    function setScoreGauge(score) {
+      const ring = document.getElementById('scoreRing');
+      const number = document.getElementById('scoreNumber');
+      if (ring) ring.style.setProperty('--score-angle', `${Math.max(0, Math.min(100, score)) * 3.6}deg`);
+      if (number) number.textContent = Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    function renderTrendChart(metrics) {
+      const ctx = document.getElementById('trendChart')?.getContext('2d');
+      if (!ctx) return;
+
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: metrics.trendHours,
+          datasets: [
+            {
+              label: 'Productivity Score',
+              data: metrics.trendProductivity,
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59, 130, 246, 0.18)',
+              fill: true,
+              tension: 0.38,
+              pointRadius: 2,
+            },
+            {
+              label: 'Activity Level',
+              data: metrics.trendActivity,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              fill: true,
+              tension: 0.38,
+              pointRadius: 2,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            x: { grid: { display: false }, ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true } }
+          }
+        }
+      });
+    }
+
+    function renderWorkTypeChart(metrics) {
+      const ctx = document.getElementById('workTypeChart')?.getContext('2d');
+      if (!ctx) return;
+
+      if (workTypeChart) workTypeChart.destroy();
+      workTypeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: metrics.workType.map(point => point.label),
+          datasets: [
+            { label: 'Typing', data: metrics.workType.map(point => point.typing), backgroundColor: '#3b82f6', stack: 'work' },
+            { label: 'Mouse', data: metrics.workType.map(point => point.mouse), backgroundColor: '#10b981', stack: 'work' },
+            { label: 'Reading', data: metrics.workType.map(point => point.reading), backgroundColor: '#f59e0b', stack: 'work' },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { stacked: true, ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true }, grid: { display: false } },
+            y: { stacked: true, beginAtZero: true, max: 100, ticks: { color: '#94a3b8', callback: value => `${value}%` }, grid: { color: 'rgba(255,255,255,0.05)' } }
+          }
+        }
+      });
+    }
+
+    function renderAppUsageChart(appUsage) {
+      const ctx = document.getElementById('appUsageChart')?.getContext('2d');
+      const legend = document.getElementById('appLegend');
+      if (!ctx || !legend) return;
+
+      if (appUsageChart) appUsageChart.destroy();
+
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4'];
+      appUsageChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: appUsage.map(item => item.name),
+          datasets: [{ data: appUsage.map(item => item.pct), backgroundColor: colors, borderWidth: 0 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '68%',
+          plugins: { legend: { display: false } }
+        }
+      });
+
+      legend.innerHTML = appUsage.length
+        ? appUsage.map((item, index) => `
+            <div class="app-row">
+              <div class="name" title="${item.name}">${item.name}</div>
+              <div class="bar-track"><div class="bar-fill" style="width: ${Math.max(6, item.pct)}%; background: ${colors[index % colors.length]};"></div></div>
+              <div style="text-align:right; color: var(--text-muted);">${item.pct.toFixed(0)}%</div>
+            </div>
+          `).join('')
+        : '<div style="color: var(--text-muted); font-size: 0.85rem;">No app usage data found.</div>';
+    }
+
+    function renderWeeklyHeatmap(reports) {
+      const grid = document.getElementById('heatmapGrid');
+      if (!grid) return;
+
+      const { matrix, max } = buildWeeklyMatrix(reports);
+      const rows = [];
+      for (let hour = 23; hour >= 0; hour--) {
+        rows.push(`<div class="axis-label">${formatHour(hour)}</div>`);
+        for (let day = 0; day < 7; day++) {
+          const intensity = matrix[hour][day];
+          const level = intensity <= 0 ? 0 : intensity / max < 0.25 ? 1 : intensity / max < 0.5 ? 2 : intensity / max < 0.75 ? 3 : 4;
+          rows.push(`<div class="heatmap-cell" data-level="${level}" title="${formatHour(hour)} · ${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day]} · ${intensity.toFixed(1)}"></div>`);
+        }
+      }
+      grid.innerHTML = rows.join('');
+    }
+
+    function renderPerformanceDashboard(dailyReports, weeklyReports) {
+      const metrics = buildPerformanceMetrics(dailyReports, weeklyReports);
+
+      setScoreGauge(metrics.overall);
+
+      const scoreNote = document.getElementById('scoreNote');
+      if (scoreNote) {
+        scoreNote.textContent = metrics.overall >= 75
+          ? 'Strong day: activity is steady with a healthy work rhythm.'
+          : metrics.overall >= 50
+            ? 'Moderate day: productivity is present, but there are visible drop-offs.'
+            : 'Low day: activity is sparse and the work rhythm is inconsistent.';
+      }
+
+      const scoreChips = document.getElementById('scoreChips');
+      if (scoreChips) {
+        const peak = metrics.peakBucket ? metrics.peakBucket.label : '--';
+        const low = metrics.lowBucket ? metrics.lowBucket.label : '--';
+        scoreChips.innerHTML = [
+          `<span class="insight-chip">Activity ${metrics.activityScore}%</span>`,
+          `<span class="insight-chip">Consistency ${metrics.consistency}%</span>`,
+          `<span class="insight-chip">Engagement ${metrics.engagementScore}%</span>`,
+          `<span class="insight-chip">Peak ${peak}</span>`,
+          `<span class="insight-chip">Low ${low}</span>`
+        ].join('');
+      }
+
+      const insightPills = document.getElementById('insightPills');
+      if (insightPills) {
+        const topAppName = metrics.topApp ? `${metrics.topApp.name} ${metrics.topApp.pct.toFixed(0)}%` : 'No dominant app';
+        insightPills.innerHTML = [
+          `<span class="trend-pill">Peak productivity: ${metrics.peakBucket ? metrics.peakBucket.label : '--'}</span>`,
+          `<span class="trend-pill">Low engagement: ${metrics.lowBucket ? metrics.lowBucket.label : '--'}</span>`,
+          `<span class="trend-pill">Top app: ${topAppName}</span>`,
+        ].join('');
+      }
+
+      const aiSummaryText = document.getElementById('aiSummaryText');
+      if (aiSummaryText) {
+        const topAppText = metrics.topApp ? `${metrics.topApp.name} (${metrics.topApp.pct.toFixed(0)}%)` : 'no dominant app';
+        aiSummaryText.innerHTML = `
+          <p>Peak productivity appears around <strong>${metrics.peakBucket ? metrics.peakBucket.label : '--'}</strong>, while engagement drops closest to <strong>${metrics.lowBucket ? metrics.lowBucket.label : '--'}</strong>.</p>
+          <p>Most work was concentrated in <strong>${topAppText}</strong>, with ${metrics.activeMinutes.toFixed(1)} minutes active, ${metrics.totalKeys} key presses, and ${metrics.totalClicks} mouse clicks across the selected day.</p>
+        `;
+      }
+
+      const peakWindow = document.getElementById('peakWindow');
+      const lowWindow = document.getElementById('lowWindow');
+      const topApp = document.getElementById('topApp');
+      if (peakWindow) peakWindow.textContent = metrics.peakBucket ? metrics.peakBucket.label : '--';
+      if (lowWindow) lowWindow.textContent = metrics.lowBucket ? metrics.lowBucket.label : '--';
+      if (topApp) topApp.textContent = metrics.topApp ? metrics.topApp.name : '--';
+
+      const trendStats = document.getElementById('trendStats');
+      if (trendStats) {
+        trendStats.innerHTML = [
+          `<span class="trend-pill">Active ${metrics.activeMinutes.toFixed(1)}m</span>`,
+          `<span class="trend-pill">Idle ${metrics.idleMinutes.toFixed(1)}m</span>`,
+          `<span class="trend-pill">Inputs ${metrics.totalKeys + metrics.totalClicks}</span>`,
+          `<span class="trend-pill">Weekly spread ${metrics.weeklySpread}%</span>`
+        ].join('');
+      }
+
+      renderTrendChart(metrics);
+      renderWorkTypeChart(metrics);
+      renderAppUsageChart(metrics.appUsage);
+      renderWeeklyHeatmap(weeklyReports || []);
+    }
+
+    async function loadWeeklyReports() {
+      const date = document.getElementById('modalDate')?.value;
+      if (!date || !_currentModalCompId || !_currentModalUserId) return [];
+
+      const range = getWeekRange(date);
+      const cacheKey = `${_currentModalCompId}:${_currentModalUserId}:${range.start.toISOString().slice(0, 10)}:${range.end.toISOString().slice(0, 10)}`;
+      if (window._weeklyRangeKey === cacheKey && Array.isArray(window._weeklyReports)) {
+        return window._weeklyReports;
+      }
+
+      const start = range.start.toISOString().slice(0, 10);
+      const end = range.end.toISOString().slice(0, 10);
+      const response = await fetch(`/api/reports/employee/${encodeURIComponent(_currentModalCompId)}/${encodeURIComponent(_currentModalUserId)}/range?start=${start}&end=${end}`);
+      const reports = await response.json();
+      window._weeklyReports = Array.isArray(reports) ? reports : [];
+      window._weeklyRangeKey = cacheKey;
+      return window._weeklyReports;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      loadTrackers();
+    });
+
+    async function loadTrackers() {
+      const tbody = document.getElementById('trackerTableBody');
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">Loading trackers...</td></tr>';
+      
+      try {
+        const response = await fetch('/api/admin/trackers');
+        if (!response.ok) throw new Error("API Error");
+        
+        const trackers = await response.json();
+        
+        if (trackers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No trackers registered yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        
+        trackers.forEach(t => {
+          const tr = document.createElement('tr');
+          const isEnabled = t.is_tracking_active;
+          const isDecom = t.is_decommissioned;
+          
+          tr.innerHTML = `
+            <td style="font-weight: 600; color: ${isDecom ? '#64748b' : '#3b82f6'};">${t.company_id}</td>
+            <td style="font-weight: 500; color: ${isDecom ? '#64748b' : 'inherit'};">${t.user_id}</td>
+            <td style="color: ${isDecom ? '#64748b' : 'inherit'};">${t.designation || 'Not set'}</td>
+            <td>
+              <span id="badge-${t._id}" class="status-badge ${isDecom ? 'status-paused' : (isEnabled ? 'status-active' : 'status-paused')}"
+                    style="${isDecom ? 'background: rgba(234, 179, 8, 0.2); color: #eab308;' : ''}">
+                ${isDecom ? 'UNINSTALLING...' : (isEnabled ? 'ACTIVE' : 'PAUSED')}
+              </span>
+            </td>
+            <td>
+               <input type="number" value="${t.report_interval || 120}" ${isDecom ? 'disabled' : ''}
+                     style="width: 70px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+                            color: ${isDecom ? '#64748b' : 'white'}; padding: 4px 8px; border-radius: 6px; font-family: 'Outfit'; font-size: 0.85rem;"
+                     onchange="changeInterval(this.value, '${t.company_id}', '${t.user_id}')">
+            </td>
+            <td>
+              <label class="switch">
+                <input type="checkbox" ${isEnabled ? 'checked' : ''} ${isDecom ? 'disabled' : ''}
+                       onchange="toggleSpecificTracker(this, '${t.company_id}', '${t.user_id}', '${t._id}')">
+                <span class="slider" style="${isDecom ? 'background-color: #475569;' : ''}"></span>
+              </label>
+            </td>
+            <td>
+              <div style="display: flex; gap: 8px;">
+                 <button onclick="openReportFromRow('${encodeURIComponent(t.company_id || '')}', '${encodeURIComponent(t.user_id || '')}', '${encodeURIComponent(t.designation || '')}')" class="btn-action btn-view">
+                   📊 Reports
+                </button>
+                <button onclick="focusChat('${t.company_id}', '${t.user_id}')" class="btn-action" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">
+                   💬 Chat
+                </button>
+                <button onclick="decommission('${t.company_id}', '${t.user_id}', this)" class="btn-action btn-decommission" ${isDecom ? 'disabled style="opacity:0.5"' : ''}>
+                   🗑 ${isDecom ? 'Wiping' : 'End'}
+                </button>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #ef4444;">Failed to load data.</td></tr>';
+        console.error(e);
+      }
+    }
+
+    // Holds the auto-refresh timer for the report modal
+    let _reportRefreshTimer = null;
+    let _currentModalCompId = null;
+    let _currentModalUserId = null;
+    let _currentModalDesignation = '';
+    let _isModalRefreshing = false;
+    let _chartScale = 'recent'; 
+    let _lastSummaryContextKey = '';
+
+    function startModalAutoRefresh() {
+      if (_reportRefreshTimer) {
+        clearInterval(_reportRefreshTimer);
+      }
+
+      _reportRefreshTimer = setInterval(async () => {
+        if (_isModalRefreshing) return;
+        if (!_currentModalCompId || !_currentModalUserId) return;
+        if (document.getElementById('modalOverlay').style.display !== 'flex') return;
+
+        _isModalRefreshing = true;
+        try {
+          await _fetchAndRenderReports(_currentModalCompId, _currentModalUserId);
+          const activeTab = document.querySelector('.btn-tab.active-tab')?.id?.replace('tab-', '');
+          if (activeTab === 'insights') {
+            await fetchSummary(false);
+          }
+        } catch (error) {
+          console.error('Auto refresh failed:', error);
+        } finally {
+          _isModalRefreshing = false;
+        }
+      }, 12000);
+    }
+
+    function changeChartScale(scale) {
+      _chartScale = scale;
+      document.getElementById('btn-recent').style.background = scale === 'recent' ? 'var(--primary)' : 'transparent';
+      document.getElementById('btn-recent').style.color = scale === 'recent' ? 'white' : 'var(--text-muted)';
+      document.getElementById('btn-history').style.background = scale === 'history' ? 'var(--primary)' : 'transparent';
+      document.getElementById('btn-history').style.color = scale === 'history' ? 'white' : 'var(--text-muted)';
+      
+      // Re-render chart with existing data in memory
+      if (window._lastReports) renderPerformanceChart(window._lastReports);
+    }
+
+    function openReportFromRow(compIdEncoded, userIdEncoded, designationEncoded) {
+      const compId = decodeURIComponent(compIdEncoded || '');
+      const userId = decodeURIComponent(userIdEncoded || '');
+      const designation = decodeURIComponent(designationEncoded || '');
+      return viewEmployeeData(compId, userId, designation);
+    }
+
+    async function viewEmployeeData(compId, userId, designation = '') {
+      // Clear any previous auto-refresh loop
+      if (_reportRefreshTimer) clearInterval(_reportRefreshTimer);
+      _currentModalCompId = compId;
+      _currentModalUserId = userId;
+      _currentModalDesignation = (designation || '').trim();
+      _lastSummaryContextKey = '';
+
+      // Set default date to today
+      document.getElementById('modalDate').value = getLocalDateString();
+      switchTab('logs'); // Reset to logs tab
+
+      toggleModal(true);
+      const modalTitle = document.getElementById('modalTitle');
+      modalTitle.textContent = `Activity Logs: ${userId} @ ${compId}`;
+      
+      await _fetchAndRenderReports(compId, userId);
+      startModalAutoRefresh();
+    }
+
+    async function onDateChange() {
+      const activeTab = document.querySelector('.btn-tab.active-tab').id.replace('tab-', '');
+      await _fetchAndRenderReports(_currentModalCompId, _currentModalUserId);
+      startModalAutoRefresh();
+      if (activeTab === 'insights') {
+        await fetchSummary();
+      }
+    }
+
+    function focusChat(compId, userId) {
+      _currentModalCompId = compId;
+      _currentModalUserId = userId;
+      const win = document.getElementById('chatWin');
+      if(win.style.display !== 'flex') toggleChat();
+      
+      const msgs = document.getElementById('chatMsgs');
+      const bMsg = document.createElement('div');
+      bMsg.className = 'msg msg-bot';
+      bMsg.innerHTML = marked.parse(`**Focus Switched:** I am now analyzing **${userId}** (@ ${compId}). How can I help?`);
+      msgs.appendChild(bMsg);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function switchTab(tab) {
+      document.getElementById('tab-logs').classList.toggle('active-tab', tab === 'logs');
+      document.getElementById('tab-insights').classList.toggle('active-tab', tab === 'insights');
+      document.getElementById('reportList').style.display = tab === 'logs' ? 'block' : 'none';
+      document.querySelector('.modal-body > div').style.display = tab === 'logs' ? 'block' : 'none'; // Chart container
+      document.getElementById('reportFilter').style.display = tab === 'logs' ? 'block' : 'none';
+      document.getElementById('insightsPanel').style.display = tab === 'insights' ? 'block' : 'none';
+      
+      if (tab === 'insights') fetchSummary();
+    }
+
+    async function fetchSummary(regen = false) {
+      const content = document.getElementById('insContent');
+      const analyzed = document.getElementById('insAnalyzed');
+      const cachedBadge = document.getElementById('insCached');
+      const date = document.getElementById('modalDate').value;
+      const contextKey = `${_currentModalCompId}:${_currentModalUserId}:${date}`;
+      const shouldRegen = regen || _lastSummaryContextKey !== contextKey;
+
+      document.getElementById('insName').textContent = `User ${_currentModalUserId}`;
+
+      if (shouldRegen) {
+        content.innerHTML = '<div style="text-align:center; padding: 50px; color: var(--text-muted);">🔄 Regenerating summary via Llama 3...</div>';
+      }
+
+      try {
+        const [summaryResponse, weeklyReports] = await Promise.all([
+          fetch(`/api/admin/summary/${_currentModalCompId}/${_currentModalUserId}?date=${date}&regen=${shouldRegen}`),
+          loadWeeklyReports().catch(() => [])
+        ]);
+        const data = await summaryResponse.json();
+        const text = data.summary || 'No summary available for this date.';
+
+        _lastSummaryContextKey = contextKey;
+
+        content.innerHTML = marked.parse(text);
+        analyzed.textContent = `${data.analyzed || 0} characters analyzed`;
+        cachedBadge.style.display = data.cached ? 'inline-block' : 'none';
+
+        if (window.currentReports) {
+          renderPerformanceDashboard(window.currentReports, weeklyReports);
+        }
+      } catch (err) {
+        content.innerHTML = '<div style="text-align:center; padding: 50px; color: #ef4444;">Error generating summary.</div>';
+      }
+    }
+
+    async function _fetchAndRenderReports(compId, userId) {
+      const modalBody = document.getElementById('modalBody');
+      const reportList = document.getElementById('reportList');
+      const stats = document.getElementById('modalStats');
+      const date = document.getElementById('modalDate').value;
+
+      try {
+        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${date}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch reports');
+        }
+
+        const reports = await response.json();
+        if (!Array.isArray(reports)) {
+          throw new Error('Invalid reports payload');
+        }
+        
+        if (!reports || reports.length === 0) {
+          reportList.innerHTML = '<div style="text-align:center; padding: 40px; color: #94a3b8">No records found for this date.</div>';
+          stats.textContent = `Showing 0 reports · Refreshed at ${new Date().toLocaleTimeString()}`;
+          window.currentReports = [];
+          window._currentReportsDate = date;
+          renderPerformanceChart([]);
+          const weeklyReports = await loadWeeklyReports().catch(() => []);
+          renderPerformanceDashboard([], weeklyReports);
+          return;
+        }
+
+        const q = document.getElementById('reportFilter')?.value?.toLowerCase() || '';
+        window.currentReports = reports; // Store for filtering
+        window._currentReportsDate = date;
+        renderReports(q ? reports.filter(r => `${r.window_title} ${r.active_app}`.toLowerCase().includes(q)) : reports);
+        
+        const weeklyReports = await loadWeeklyReports().catch(() => []);
+
+        // Render Chart
+        renderPerformanceChart(reports);
+        renderPerformanceDashboard(reports, weeklyReports);
+
+        // Show last-refreshed time
+        const now = new Date().toLocaleTimeString();
+        stats.textContent = `Showing ${reports.length} total reports · Refreshed at ${now}`;
+
+      } catch (err) {
+        reportList.innerHTML = '<div style="text-align:center; padding: 40px; color: #ef4444">Error loading reports.</div>';
+        stats.textContent = 'Could not refresh reports.';
+        console.error('Report fetch error:', err);
+      }
+    }
+
+    function renderReports(reportsList) {
+      const modalList = document.getElementById('reportList');
+      const stats = document.getElementById('modalStats');
+      modalList.innerHTML = '';
+      
+      stats.textContent = `Showing ${reportsList.length} total reports`;
+
+      reportsList.forEach(r => {
+        const date = new Date(r.eventAt || r.timestamp || r.createdAt).toLocaleString();
+        const designation = (r.designation || _currentModalDesignation || '').trim() || 'Not set';
+        const activeSec = Number(r.time_active_sec || 0);
+        const keys = Number(r.keyboard_key_presses || 0);
+        const clicks = Number(r.mouse_clicks || 0);
+        const words = Number(r.ocr_word_count || 0);
+        const confidence = Number(r.ocr_confidence_mean || 0);
+        const card = document.createElement('div');
+        card.className = 'report-card';
+        card.setAttribute('data-search', `${r.window_title} ${r.active_app} ${designation} ${date}`.toLowerCase());
+        
+        const qualityClass = confidence > 75 ? 'q-good' : (confidence > 50 ? 'q-fair' : 'q-poor');
+        
+        card.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+            <div>
+              <h4 style="margin:0">${r.window_title || 'Untitled Window'}</h4>
+              <div style="font-size: 0.75rem; color: #94a3b8;">${r.active_app}</div>
+            </div>
+            <div style="text-align: right">
+              <div style="font-size: 0.8rem; font-weight: 500;">${date}</div>
+              <span class="badge-quality ${qualityClass}">OCR ${r.ocr_confidence_label || 'Unknown'}</span>
+            </div>
+          </div>
+          <div class="report-meta">
+            <div>🖱 Clicks: <b>${clicks}</b></div>
+            <div>⌨️ Keys: <b>${keys}</b></div>
+            <div>⏱ Active: <b>${activeSec.toFixed(1)}s</b></div>
+            <div>📑 Words: <b>${words}</b></div>
+            <div>🧑‍💼 Role: <b>${designation}</b></div>
+          </div>
+        `;
+        modalList.appendChild(card);
+      });
+    }
+
+    function filterReports() {
+      const q = document.getElementById('reportFilter').value.toLowerCase();
+      const cards = document.querySelectorAll('.report-card');
+      let visibleCount = 0;
+      
+      cards.forEach(c => {
+        const text = c.getAttribute('data-search');
+        if (text.includes(q)) {
+          c.style.display = 'block';
+          visibleCount++;
+        } else {
+          c.style.display = 'none';
+        }
+      });
+      
+      document.getElementById('modalStats').textContent = `Showing ${visibleCount} filtered reports`;
+    }
+
+    function toggleModal(show) {
+      document.getElementById('modalOverlay').style.display = show ? 'flex' : 'none';
+      // When closing the modal, stop the auto-refresh
+      if (!show && _reportRefreshTimer) {
+        clearInterval(_reportRefreshTimer);
+        _reportRefreshTimer = null;
+      }
+    }
+
+    function closeModal(e) {
+      if (e.target === document.getElementById('modalOverlay')) toggleModal(false);
+    }
+
+    async function toggleSpecificTracker(checkboxElem, compId, userId, domId) {
+      const isChecked = checkboxElem.checked;
+      try {
+        const response = await fetch('/api/admin/toggle-tracking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId, is_active: isChecked })
+        });
+        if (!response.ok) throw new Error("Update failed");
+        
+        const badge = document.getElementById(`badge-${domId}`);
+        badge.className = `status-badge ${isChecked ? 'status-active' : 'status-paused'}`;
+        badge.textContent = isChecked ? 'ACTIVE' : 'PAUSED';
+        
+        showToast(`${userId} is now ${isChecked ? 'LIVE' : 'HIBERNATING'}`);
+      } catch (err) {
+        checkboxElem.checked = !isChecked;
+        showToast("Action failed.");
+      }
+    }
+
+    async function changeInterval(newVal, compId, userId) {
+      try {
+        const response = await fetch('/api/admin/update-interval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId, interval: newVal })
+        });
+        if (!response.ok) throw new Error();
+        showToast(`Interval for ${userId} set to ${newVal}s`);
+      } catch {
+        showToast('Failed to update interval.');
+      }
+    }
+
+    async function decommission(compId, userId, btn) {
+      if (!confirm(`Permanently decommission ${userId}? This will uninstall the software remotely.`)) return;
+      try {
+        const response = await fetch('/api/admin/decommission', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId })
+        });
+        if (!response.ok) throw new Error();
+        showToast(`Kill order sent to ${userId}. Waiting for device confirmation...`);
+        // Reload the tracker list so the row shows "UNINSTALLING..." state
+        await loadTrackers();
+      } catch {
+        showToast('Failed to decommission.');
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>

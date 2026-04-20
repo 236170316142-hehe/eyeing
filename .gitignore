@@ -1,0 +1,30 @@
+# Node / backend
+backend/node_modules/
+backend/.env
+backend/.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local runtime data
+activity_data/
+activity_monitor.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Build artifacts / archives
+*.zip
+*.tar
+*.gz
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
