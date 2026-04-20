@@ -587,10 +587,11 @@ app.get('/api/admin/trackers', async (req, res) => {
     const reportUsers = await withTimeout(
       Report.aggregate([
         { $match: { company_id: { $exists: true, $ne: '' }, user_id: { $exists: true, $ne: '' } } },
+        { $sort: { createdAt: -1 } },
         {
           $group: {
             _id: { company_id: '$company_id', user_id: '$user_id' },
-            latestDesignation: { $last: '$designation' }
+            latestDesignation: { $first: '$designation' }
           }
         }
       ]),
@@ -620,21 +621,7 @@ app.get('/api/admin/trackers', async (req, res) => {
       }
     });
 
-    const trackersWithDesignation = await withTimeout(Promise.all(
-      Array.from(merged.values()).map(async (tracker) => {
-        if (tracker.designation) {
-          return tracker;
-        }
-
-        try {
-          const designation = await getUserDesignation(tracker.company_id, tracker.user_id);
-          return { ...tracker, designation };
-        } catch (designationError) {
-          console.warn('[!] Could not resolve designation for tracker:', tracker.company_id, tracker.user_id, designationError?.message || designationError);
-          return tracker;
-        }
-      })
-    ), 8000, 'Designation enrichment');
+    const trackersWithDesignation = Array.from(merged.values());
 
     trackersWithDesignation.sort((a, b) => {
       if (a.company_id === b.company_id) {
