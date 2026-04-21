@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Monitor Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #081120;
+      --panel: rgba(15, 23, 42, 0.78);
+      --border: rgba(255,255,255,0.08);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --accent: #10b981;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Outfit', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(59,130,246,0.20), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(16,185,129,0.14), transparent 30%),
+        linear-gradient(180deg, #050a14, var(--bg));
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .shell {
+      width: min(960px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 30px 32px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    h1 { margin: 0 0 8px; font-size: 2rem; }
+    .subtitle { margin: 0; color: var(--muted); line-height: 1.6; max-width: 60ch; }
+
+    .badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(59,130,246,0.14);
+      border: 1px solid rgba(59,130,246,0.24);
+      color: #bfdbfe;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 0;
+    }
+
+    .panel {
+      padding: 28px 32px 32px;
+    }
+
+    .auth-card {
+      margin-bottom: 20px;
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .auth-card h2 {
+      margin: 0 0 6px;
+      font-size: 1.05rem;
+    }
+
+    .auth-card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.92rem;
+    }
+
+    .provider-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .provider-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .provider-btn.active {
+      border-color: rgba(59,130,246,0.6);
+      background: rgba(59,130,246,0.14);
+      color: #dbeafe;
+    }
+
+    .provider-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .provider-btn small {
+      display: block;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 13px 14px;
+      color: var(--text);
+      outline: none;
+      font-family: inherit;
+    }
+
+    input:focus {
+      border-color: rgba(59,130,246,0.6);
+      box-shadow: 0 0 0 4px rgba(59,130,246,0.14);
+    }
+
+    .full { grid-column: 1 / -1; }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 18px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 18px;
+      font-family: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .primary {
+      background: linear-gradient(135deg, var(--primary), #2563eb);
+      color: white;
+      box-shadow: 0 12px 30px rgba(59,130,246,0.25);
+    }
+
+    .secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .side {
+      border-left: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .step {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.05);
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status {
+      margin-top: 14px;
+      min-height: 22px;
+      color: #bfdbfe;
+      font-size: 0.9rem;
+    }
+
+    .fineprint {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 860px) {
+      .content { grid-template-columns: 1fr; }
+      .side { border-left: 0; border-top: 1px solid var(--border); }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>Employee Monitor Setup</h1>
+        <p class="subtitle">Configure the tracker in a browser instead of a popup. Save the employee profile once, then the monitor will read it automatically on startup.</p>
+      </div>
+      <div class="badge">Web setup flow</div>
+    </section>
+
+    <section class="content">
+      <div class="panel">
+        <form id="setupForm">
+          <div class="auth-card">
+            <h2>Sign in to continue</h2>
+            <p>Use email login or Google account mode. If Google OAuth is configured, sign-in will be verified automatically; otherwise your Google email will still be saved as the login account.</p>
+            <div class="provider-row" style="margin-bottom: 14px;">
+              <button type="button" class="provider-btn active" data-provider="email" id="providerEmail">
+                Email Login
+                <small>Local web access</small>
+              </button>
+              <button type="button" class="provider-btn" data-provider="google" id="providerGoogle" title="Google sign-in">
+                Google Login
+                <small>Google account mode</small>
+              </button>
+            </div>
+            <div id="googleHint" class="status" style="margin-top: 0; min-height: 18px; color: var(--muted);"></div>
+            <div id="googleAuthWrap" style="display:none; margin-bottom: 14px;">
+              <div id="googleSignInButton"></div>
+            </div>
+            <div class="form-grid">
+              <div class="full">
+                <label for="login_email">Login Email</label>
+                <input id="login_email" name="login_email" type="email" placeholder="you@company.com" required>
+              </div>
+              <div class="full">
+                <label for="designation">Designation</label>
+                <input id="designation" name="designation" type="text" placeholder="Software Engineer" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div>
+              <label for="employee_id">Employee ID</label>
+              <input id="employee_id" name="employee_id" placeholder="0001" required>
+            </div>
+            <div>
+              <label for="user_id">User ID</label>
+              <input id="user_id" name="user_id" placeholder="0001" required>
+            </div>
+            <div>
+              <label for="company_id">Company ID</label>
+              <input id="company_id" name="company_id" placeholder="Cord4 Tech" required>
+            </div>
+            <div>
+              <label for="org_name">Organization Name</label>
+              <input id="org_name" name="org_name" placeholder="Cord4" required>
+            </div>
+            <div class="full">
+              <label for="device_id">Device ID</label>
+              <input id="device_id" name="device_id" placeholder="Auto-filled from this machine">
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="primary">Save Setup</button>
+            <button type="button" class="secondary" id="loadCurrent">Load Current Config</button>
+          </div>
+          <div id="status" class="status"></div>
+          <div class="fineprint">
+            This page stores the local config used by <strong>monitor.py</strong>. Google account mode works with email-only save; optional OAuth verification is enabled by setting <strong>GOOGLE_CLIENT_ID</strong> in <strong>backend/.env</strong>.
+          </div>
+        </form>
+      </div>
+
+      <aside class="panel side">
+        <h2 style="margin-top:0;">What changes after save?</h2>
+        <div class="steps">
+          <div class="step">The monitor reads these IDs on startup and uploads reports under the correct company/user.</div>
+          <div class="step">Idle state still pauses OCR and embeddings after 5 minutes of no input.</div>
+          <div class="step">You can then manage everything from the dashboard without the desktop popup.</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    const form = document.getElementById('setupForm');
+    const status = document.getElementById('status');
+    const loadCurrent = document.getElementById('loadCurrent');
+    const providerButtons = Array.from(document.querySelectorAll('.provider-btn'));
+    const providerGoogle = document.getElementById('providerGoogle');
+    const loginEmailInput = document.getElementById('login_email');
+    const googleHint = document.getElementById('googleHint');
+    const googleAuthWrap = document.getElementById('googleAuthWrap');
+    const query = new URLSearchParams(window.location.search);
+    const shouldAutoClose = query.get('autoclose') === '1';
+    const shouldRunMonitor = query.get('runMonitor') === '1';
+    let selectedProvider = 'email';
+    let googleClientId = '';
+    let googleEnabled = false;
+    let googleVerifiedEmail = '';
+    let isSaving = false;
+
+    function closeSetupWindow() {
+      try {
+        window.open('', '_self');
+        window.close();
+      } catch (_error) {
+        // Ignore. Some browsers block close() unless the tab was opened programmatically.
+      }
+
+      setTimeout(() => {
+        try {
+          if (!window.closed) {
+            window.location.replace('about:blank');
+          }
+        } catch (_error) {
+          // Ignore fallback failures as well.
+        }
+      }, 250);
+    }
+
+    function setProvider(provider) {
+      selectedProvider = provider;
+      providerButtons.forEach(item => item.classList.toggle('active', item.dataset.provider === provider));
+
+      if (provider === 'google') {
+        googleAuthWrap.style.display = googleEnabled ? 'block' : 'none';
+        if (googleEnabled) {
+          status.textContent = googleVerifiedEmail
+            ? 'Google account verified. You can save setup now.'
+            : 'Click Sign in with Google to verify your account, or type your Google email.';
+        } else {
+          status.textContent = 'Google account mode selected. Enter your Google email and save.';
+        }
+      } else {
+        googleAuthWrap.style.display = 'none';
+        status.textContent = 'Email login selected.';
+      }
+    }
+
+    function clearGoogleVerification() {
+      if (selectedProvider === 'google') {
+        setProvider('email');
+      }
+      googleVerifiedEmail = '';
+      loginEmailInput.readOnly = false;
+    }
+
+    async function handleGoogleCredentialResponse(credentialResponse) {
+      try {
+        const response = await fetch('/api/setup/google/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: credentialResponse.credential })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Google verification failed.');
+        }
+
+        googleVerifiedEmail = data.email || '';
+        loginEmailInput.value = googleVerifiedEmail;
+        loginEmailInput.readOnly = true;
+        setProvider('google');
+        status.textContent = `Google verified: ${googleVerifiedEmail}`;
+      } catch (error) {
+        clearGoogleVerification();
+        status.textContent = error.message || 'Google sign-in failed.';
+      }
+    }
+
+    async function loadAuthProviders() {
+      try {
+        const response = await fetch('/api/setup/auth/providers');
+        const data = await response.json();
+        googleEnabled = Boolean(data.googleEnabled);
+        googleClientId = data.googleClientId || '';
+
+        googleHint.textContent = googleEnabled
+          ? 'Google OAuth is configured for this backend.'
+          : 'Google OAuth is not configured. You can still use Google account mode with email-only save.';
+
+        if (googleEnabled && window.google?.accounts?.id) {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleCredentialResponse,
+            auto_select: false,
+            cancel_on_tap_outside: true,
+          });
+
+          window.google.accounts.id.renderButton(
+            document.getElementById('googleSignInButton'),
+            { theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with' }
+          );
+        }
+      } catch (_error) {
+        providerGoogle.disabled = true;
+        googleHint.textContent = 'Could not load auth provider config from backend.';
+      }
+    }
+
+    providerButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        setProvider(button.dataset.provider);
+      });
+    });
+
+    loginEmailInput.addEventListener('input', () => {
+      if (selectedProvider === 'google' && loginEmailInput.value.trim() !== googleVerifiedEmail) {
+        clearGoogleVerification();
+      }
+    });
+
+    async function loadConfig() {
+      try {
+        const response = await fetch('/api/setup/config');
+        const data = await response.json();
+        if (data.exists && data.config) {
+          document.getElementById('employee_id').value = data.config.employee_id || '';
+          document.getElementById('user_id').value = data.config.user_id || '';
+          document.getElementById('company_id').value = data.config.company_id || '';
+          document.getElementById('org_name').value = data.config.org_name || '';
+          document.getElementById('device_id').value = data.config.device_id || '';
+          loginEmailInput.value = data.config.login_email || '';
+          document.getElementById('designation').value = data.config.designation || '';
+          const savedProvider = data.config.login_provider === 'google' ? 'google' : 'email';
+
+          if (savedProvider === 'google' && googleEnabled && data.config.login_email) {
+            googleVerifiedEmail = String(data.config.login_email).trim();
+            loginEmailInput.readOnly = true;
+            setProvider('google');
+            status.textContent = `Loaded Google profile: ${googleVerifiedEmail}`;
+          } else {
+            loginEmailInput.readOnly = false;
+            setProvider('email');
+            status.textContent = data.config.login_email
+              ? 'Loaded existing configuration.'
+              : 'Configuration loaded, but login email is still missing.';
+          }
+        } else {
+          status.textContent = 'No saved config found yet.';
+        }
+      } catch (error) {
+        status.textContent = 'Could not load current config.';
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (isSaving) {
+        return;
+      }
+
+      isSaving = true;
+      form.querySelector('button[type="submit"]').disabled = true;
+      status.textContent = 'Saving...';
+
+      const payload = {
+        login_email: document.getElementById('login_email').value.trim(),
+        designation: document.getElementById('designation').value.trim(),
+        employee_id: document.getElementById('employee_id').value.trim(),
+        user_id: document.getElementById('user_id').value.trim(),
+        company_id: document.getElementById('company_id').value.trim(),
+        org_name: document.getElementById('org_name').value.trim(),
+        device_id: document.getElementById('device_id').value.trim(),
+        backend_url: window.location.origin,
+        login_provider: selectedProvider
+      };
+
+      if (selectedProvider === 'google' && googleEnabled && googleVerifiedEmail && payload.login_email !== googleVerifiedEmail) {
+        status.textContent = 'Use the verified Google email or switch to email login.';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/setup/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Save failed');
+        status.textContent = 'Setup saved successfully.';
+        sessionStorage.setItem('eyeing-setup-saved', '1');
+
+        if (shouldRunMonitor) {
+          try {
+            const launchResp = await fetch('/api/setup/launch-monitor', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const launchData = await launchResp.json();
+            if (!launchResp.ok) {
+              throw new Error(launchData.error || 'Could not auto-start monitor.');
+            }
+            status.textContent = 'Setup saved and monitor launch requested.';
+          } catch (launchError) {
+            status.textContent = launchError.message || 'Setup saved, but monitor auto-start failed.';
+          }
+        }
+
+        if (shouldAutoClose) {
+          status.textContent += ' Closing setup page...';
+          setTimeout(closeSetupWindow, 500);
+        }
+      } catch (error) {
+        status.textContent = error.message || 'Save failed.';
+      } finally {
+        isSaving = false;
+        form.querySelector('button[type="submit"]').disabled = false;
+      }
+    });
+
+    loadCurrent.addEventListener('click', loadConfig);
+
+    async function initialize() {
+      await loadAuthProviders();
+      await loadConfig();
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
