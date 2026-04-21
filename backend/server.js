@@ -602,6 +602,16 @@ app.post('/api/reports', async (req, res) => {
     await TrackingStatus.findOneAndUpdate(
       { company_id: reportData.company_id, user_id: reportData.user_id },
       {
+        $set: {
+          last_seen_at: new Date(),
+          last_report_received_at: new Date(),
+          last_monitor_heartbeat_at: new Date(),
+          identity_resolved: !shouldResolveIdentity(reportData.company_id, reportData.user_id),
+          queued_local_report_count: 0,
+          last_device_id: normalizeIdentity(reportData.device_id),
+          last_install_id: normalizeIdentity(reportData.install_id),
+          last_updated_by: 'report-ingest'
+        },
         $setOnInsert: {
           is_tracking_active: true,
           is_decommissioned: false,
@@ -961,6 +971,65 @@ app.get('/api/setup/resolve', async (req, res) => {
   }
 });
 
+app.post('/api/tracker/heartbeat', async (req, res) => {
+  try {
+    if (!HAS_MONGO) {
+      return res.json({ ok: true, persisted: false, reason: 'mongo-disabled' });
+    }
+
+    let companyId = normalizeIdentity(req.body.company_id);
+    let userId = normalizeIdentity(req.body.user_id);
+    const deviceId = normalizeIdentity(req.body.device_id);
+    const installId = normalizeIdentity(req.body.install_id);
+
+    if (shouldResolveIdentity(companyId, userId)) {
+      const profile = await resolveSetupProfile({ installId, deviceId });
+      if (profile) {
+        companyId = normalizeIdentity(profile.company_id);
+        userId = normalizeIdentity(profile.user_id);
+      }
+    }
+
+    if (!companyId || !userId) {
+      return res.status(202).json({
+        ok: true,
+        persisted: false,
+        reason: 'identity-unresolved'
+      });
+    }
+
+    const queuedRaw = Number(req.body.queued_local_report_count);
+    const queuedCount = Number.isFinite(queuedRaw) && queuedRaw >= 0 ? Math.floor(queuedRaw) : 0;
+    const identityResolved = Boolean(req.body.identity_resolved) || !shouldResolveIdentity(companyId, userId);
+
+    await TrackingStatus.findOneAndUpdate(
+      { company_id: companyId, user_id: userId },
+      {
+        $set: {
+          last_seen_at: new Date(),
+          last_monitor_heartbeat_at: new Date(),
+          identity_resolved: identityResolved,
+          queued_local_report_count: queuedCount,
+          last_device_id: deviceId,
+          last_install_id: installId,
+          last_updated_by: 'monitor-heartbeat'
+        },
+        $setOnInsert: {
+          is_tracking_active: true,
+          is_decommissioned: false,
+          report_interval: 120
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ ok: true, persisted: true });
+  } catch (error) {
+    console.error('[-] Error processing tracker heartbeat:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // 2. Fetch hierarchy data (Parent Company -> Child Users -> Reports)
 app.get('/api/reports/hierarchy/:company_id', async (req, res) => {
   try {
@@ -1190,7 +1259,7 @@ app.get('/api/admin/trackers', async (req, res) => {
   try {
     // Show trackers from status collection and also fallback users discovered from reports.
     const trackers = await withTimeout(
-      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt')
+      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt last_seen_at last_report_received_at last_monitor_heartbeat_at identity_resolved queued_local_report_count last_device_id last_install_id')
         .sort({ company_id: 1, user_id: 1 })
         .lean(),
       8000,
@@ -1236,6 +1305,13 @@ app.get('/api/admin/trackers', async (req, res) => {
           is_decommissioned: false,
           report_interval: 120,
           updatedAt: null,
+          last_seen_at: null,
+          last_report_received_at: null,
+          last_monitor_heartbeat_at: null,
+          identity_resolved: false,
+          queued_local_report_count: 0,
+          last_device_id: '',
+          last_install_id: '',
           designation: String(entry?.latestDesignation || '').trim()
         });
       } else if (!merged.get(key).designation && entry?.latestDesignation) {
@@ -1315,6 +1391,66 @@ app.post('/api/admin/purge-user', async (req, res) => {
     });
   } catch (error) {
     console.error('[-] Error purging tracker:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 6c. Recover tracker(s) stuck in decommission state.
+app.post('/api/admin/recover-trackers', async (req, res) => {
+  try {
+    const { company_id, user_id, recover_all } = req.body || {};
+
+    if (recover_all) {
+      const result = await TrackingStatus.updateMany(
+        { is_decommissioned: true },
+        {
+          $set: {
+            is_decommissioned: false,
+            is_tracking_active: true,
+            last_updated_by: 'admin-recover-all'
+          },
+          $unset: {
+            decommission_requested_at: ''
+          }
+        }
+      );
+
+      return res.json({
+        message: 'Recovered all trackers stuck in uninstalling state.',
+        matched: result.matchedCount || 0,
+        modified: result.modifiedCount || 0
+      });
+    }
+
+    if (!company_id || !user_id) {
+      return res.status(400).json({ error: 'Missing company_id or user_id (or set recover_all=true).' });
+    }
+
+    const updated = await TrackingStatus.findOneAndUpdate(
+      { company_id, user_id },
+      {
+        $set: {
+          is_decommissioned: false,
+          is_tracking_active: true,
+          last_updated_by: 'admin-recover-one'
+        },
+        $unset: {
+          decommission_requested_at: ''
+        }
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Tracker not found.' });
+    }
+
+    return res.json({
+      message: `Recovered tracker ${user_id} @ ${company_id}.`,
+      status: updated
+    });
+  } catch (error) {
+    console.error('[-] Error recovering tracker state:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
