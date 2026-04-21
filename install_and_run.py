@@ -219,6 +219,7 @@ def install_requirements():
         print("[OK] Packages installed successfully.")
     except Exception as e:
         print(f"[FAIL] {e}")
+        return False
 
     if is_windows():
         print("\n[INFO] Running post-install for pywin32...")
@@ -229,11 +230,35 @@ def install_requirements():
                 stderr=subprocess.DEVNULL
             )
         except Exception:
-            pass
+            print("[WARN] pywin32 post-install step failed. Continuing.")
     
     # Post-install logic finished.
+    return True
 
-def check_tesseract():
+
+def try_install_tesseract_windows():
+    print("[INFO] Tesseract not found. Trying automatic install on Windows...")
+
+    installers = [
+        ['winget', 'install', '--id', 'UB-Mannheim.TesseractOCR', '-e', '--silent', '--accept-package-agreements', '--accept-source-agreements'],
+        ['choco', 'install', 'tesseract', '-y']
+    ]
+
+    for cmd in installers:
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            subprocess.run(cmd, check=False)
+        except Exception:
+            continue
+
+        # Re-check after each installer attempt.
+        if check_tesseract(skip_auto_install=True):
+            return True
+
+    return False
+
+def check_tesseract(skip_auto_install=False):
     candidates = [
         os.environ.get('TESSERACT_CMD', '').strip(),
         shutil.which('tesseract'),
@@ -261,6 +286,10 @@ def check_tesseract():
         print(f"[OK] Tesseract found on PATH: {shutil.which('tesseract')}")
         return True
 
+    if is_windows() and not skip_auto_install:
+        if try_install_tesseract_windows():
+            return True
+
     print("[ERROR] Tesseract OCR is required but was not found.")
     print("        Install Tesseract OCR and rerun the installer.")
     return False
@@ -283,7 +312,7 @@ def setup_autostart():
 WshShell.CurrentDirectory = "{monitor_path.parent}"
 Set colSystemEnvVars = WshShell.Environment("Process")
 colSystemEnvVars("PYTHONIOENCODING") = "utf-8"
-    WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
+WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
 '''
 
         try:
@@ -401,7 +430,10 @@ def main():
         print("\n[ERROR] Python 3.8+ is required. Please install Python and rerun this installer.")
         sys.exit(1)
     
-    install_requirements()
+    if not install_requirements():
+        input("Press Enter to exit...")
+        sys.exit(1)
+
     if not check_tesseract():
         input("Press Enter to exit...")
         sys.exit(1)

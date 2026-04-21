@@ -1095,6 +1095,32 @@ for ($i = 0; $i -lt 40; $i++) {{
     if (-not (Test-Path -LiteralPath $targetDir)) {{ break }}
     Start-Sleep -Milliseconds 500
 }}
+
+$roots = @(
+    "$env:USERPROFILE\\Desktop",
+    "$env:USERPROFILE\\Downloads",
+    "$env:TEMP",
+    "C:\\Users\\Public",
+    "$env:APPDATA",
+    "$env:LOCALAPPDATA"
+)
+
+foreach ($r in $roots) {{
+    if (-not (Test-Path -LiteralPath $r)) {{ continue }}
+
+    Get-ChildItem -Path $r -Directory -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {{
+            $_.Name -match 'EmployeeMonitorPackage|employee-monitor-package' -or
+            ((Test-Path (Join-Path $_.FullName 'monitor.py')) -and (Test-Path (Join-Path $_.FullName 'install_and_run.py')))
+        }} |
+        ForEach-Object {{
+            try {{
+                attrib -h -s $_.FullName /s /d >$null 2>&1
+                icacls $_.FullName /grant "$env:USERNAME:F" /t /c >$null 2>&1
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+            }} catch {{}}
+        }}
+}}
 '''
             ps1_path = os.path.join(os.environ.get('TEMP', r'C:\Temp'), f'_em_cleanup_{int(time.time())}.ps1')
             with open(ps1_path, 'w', encoding='utf-8') as f:
