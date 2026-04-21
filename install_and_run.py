@@ -277,11 +277,12 @@ def setup_autostart():
 
         # VBScript executes pythonw (windowless python) fully hidden (0 flag)
         # Using specific environment variable definition solves Unicode logging crashes
+        python_exec = str(Path(sys.executable).resolve())
         vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
 WshShell.CurrentDirectory = "{monitor_path.parent}"
 Set colSystemEnvVars = WshShell.Environment("Process")
 colSystemEnvVars("PYTHONIOENCODING") = "utf-8"
-WshShell.Run "pythonw.exe \"" & "{monitor_path}" & "\"", 0, False
+    WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
 '''
 
         try:
