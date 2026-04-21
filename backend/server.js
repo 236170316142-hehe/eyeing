@@ -54,6 +54,41 @@ function normalizeIdentity(value) {
   return String(value || '').trim();
 }
 
+function buildReportSignature(report) {
+  const companyId = normalizeIdentity(report?.company_id);
+  const userId = normalizeIdentity(report?.user_id);
+  const deviceId = normalizeIdentity(report?.device_id);
+  const timestamp = normalizeIdentity(report?.timestamp);
+  const app = normalizeIdentity(report?.active_app);
+  const title = normalizeIdentity(report?.window_title);
+  const activeSec = Number(report?.time_active_sec || 0).toFixed(2);
+  const idleSec = Number(report?.time_idle_sec || 0).toFixed(2);
+  const keyPresses = Number(report?.keyboard_key_presses || 0);
+  const clicks = Number(report?.mouse_clicks || 0);
+
+  return [companyId, userId, deviceId, timestamp, app, title, activeSec, idleSec, keyPresses, clicks].join('::');
+}
+
+function dedupeReportsBySignature(reports = []) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const report of reports) {
+    const signature = buildReportSignature(report);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    unique.push(report);
+  }
+
+  return unique;
+}
+
+function parseReportDate(report) {
+  const rawValue = report?.eventAt || report?.timestamp || report?.createdAt;
+  const moment = new Date(rawValue);
+  return Number.isNaN(moment.getTime()) ? null : moment;
+}
+
 function shouldResolveIdentity(companyId, userId) {
   const company = normalizeIdentity(companyId).toUpperCase();
   const user = normalizeIdentity(userId).toUpperCase();
@@ -232,6 +267,43 @@ function getEmployeePackageDefinition(platform) {
   return EMPLOYEE_PACKAGE_DEFINITIONS[normalizeEmployeePackagePlatform(platform)];
 }
 
+function findBundledTesseractDir() {
+  if (process.platform !== 'win32') {
+    return null;
+  }
+
+  const candidates = [
+    process.env.TESSERACT_DIR,
+    process.env.TESSERACT_HOME,
+    'C:\\Program Files\\Tesseract-OCR',
+    'C:\\Program Files (x86)\\Tesseract-OCR'
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const normalized = path.resolve(candidate);
+    if (fs.existsSync(path.join(normalized, 'tesseract.exe'))) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function addDirectoryRecursive(archive, sourceDir, targetPrefix) {
+  if (!fs.existsSync(sourceDir)) return;
+
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.posix.join(targetPrefix, entry.name);
+    if (entry.isDirectory()) {
+      addDirectoryRecursive(archive, sourcePath, targetPath);
+    } else if (entry.isFile()) {
+      archive.file(sourcePath, { name: targetPath });
+    }
+  }
+}
+
 function buildUnixLauncherScript() {
   return `#!/usr/bin/env bash
 set -euo pipefail
@@ -340,6 +412,7 @@ Launcher:
 - macOS and Linux: install.sh
 
 If Python or Tesseract are missing, the macOS/Linux launcher will try to install them automatically using the available package manager.
+If a Windows Tesseract bundle is present in the package, the installer will use it automatically.
 
 Launch the installer from this folder, or run it from a terminal with the platform launcher.
 
@@ -382,6 +455,11 @@ function addEmployeePackageFiles(archive, platformDefinition, origin) {
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
       archive.file(installBat, { name: 'install.bat' });
+    }
+
+    const tesseractDir = findBundledTesseractDir();
+    if (tesseractDir) {
+      addDirectoryRecursive(archive, tesseractDir, 'tesseract');
     }
   }
 
@@ -595,6 +673,41 @@ app.post('/api/reports', async (req, res) => {
       return res.status(400).json({ error: "Missing company_id or user_id in payload" });
     }
 
+    // Ignore near-identical duplicate payloads (usually caused by accidental multi-process monitor runs).
+    const duplicate = await Report.findOne({
+      company_id: reportData.company_id,
+      user_id: reportData.user_id,
+      timestamp: reportData.timestamp,
+      active_app: reportData.active_app,
+      window_title: reportData.window_title,
+      device_id: reportData.device_id
+    }).lean();
+
+    if (duplicate) {
+      await TrackingStatus.findOneAndUpdate(
+        { company_id: reportData.company_id, user_id: reportData.user_id },
+        {
+          $set: {
+            last_seen_at: new Date(),
+            last_monitor_heartbeat_at: new Date(),
+            identity_resolved: !shouldResolveIdentity(reportData.company_id, reportData.user_id),
+            queued_local_report_count: 0,
+            last_device_id: normalizeIdentity(reportData.device_id),
+            last_install_id: normalizeIdentity(reportData.install_id),
+            last_updated_by: 'report-dedupe'
+          },
+          $setOnInsert: {
+            is_tracking_active: true,
+            is_decommissioned: false,
+            report_interval: 120
+          }
+        },
+        { upsert: true, new: true }
+      );
+
+      return res.status(200).json({ message: 'Duplicate report ignored', duplicate: true, id: duplicate._id });
+    }
+
     const newReport = new Report(reportData);
     await newReport.save();
 
@@ -681,7 +794,7 @@ $env:INSTALL_ID = $installId
 $env:DEVICE_ID = $deviceId
 $env:SKIP_SETUP_OPEN = '1'
 
-$setupUrl = '${origin}/setup.html?autoclose=1&runMonitor=1&device_id=' + [uri]::EscapeDataString($deviceId) + '&install_id=' + [uri]::EscapeDataString($installId)
+$setupUrl = '${origin}/setup.html?autoclose=1&device_id=' + [uri]::EscapeDataString($deviceId) + '&install_id=' + [uri]::EscapeDataString($installId)
 
 Write-Host 'Downloading employee package...'
 Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath
@@ -724,9 +837,6 @@ if (-not (Test-Path $installer)) {
 }
 
 Write-Host 'Running install.bat (pass 1)...'
-Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait
-
-Write-Host 'Running install.bat (pass 2)...'
 Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait
 
 Write-Host 'Opening employee setup page...'
@@ -1101,7 +1211,7 @@ app.get('/api/reports/employee/:company_id/:user_id', async (req, res) => {
     pipeline.push({ $sort: { eventAt: -1, createdAt: -1 } });
 
     const reports = await Report.aggregate(pipeline);
-    res.json(reports);
+    res.json(dedupeReportsBySignature(reports));
   } catch (error) {
     console.error('[-] Error fetching employee reports:', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -1137,7 +1247,7 @@ app.get('/api/reports/employee/:company_id/:user_id/range', async (req, res) => 
       { $sort: { eventAt: 1, createdAt: 1 } }
     ]);
 
-    res.json(reports);
+    res.json(dedupeReportsBySignature(reports));
   } catch (error) {
     console.error('[-] Error fetching ranged employee reports:', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -1278,11 +1388,22 @@ app.get('/api/admin/trackers', async (req, res) => {
     const reportUsers = await withTimeout(
       Report.aggregate([
         { $match: { company_id: { $exists: true, $ne: '' }, user_id: { $exists: true, $ne: '' } } },
-        { $sort: { createdAt: -1 } },
+        {
+          $addFields: {
+            eventAt: {
+              $ifNull: [
+                { $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null } },
+                '$createdAt'
+              ]
+            }
+          }
+        },
+        { $sort: { eventAt: -1, createdAt: -1 } },
         {
           $group: {
             _id: { company_id: '$company_id', user_id: '$user_id' },
-            latestDesignation: { $first: '$designation' }
+            latestDesignation: { $first: '$designation' },
+            latestReportAt: { $first: '$eventAt' }
           }
         }
       ]),
@@ -1306,9 +1427,9 @@ app.get('/api/admin/trackers', async (req, res) => {
           report_interval: 120,
           updatedAt: null,
           last_seen_at: null,
-          last_report_received_at: null,
+          last_report_received_at: entry?.latestReportAt || null,
           last_monitor_heartbeat_at: null,
-          identity_resolved: false,
+          identity_resolved: true,
           queued_local_report_count: 0,
           last_device_id: '',
           last_install_id: '',
@@ -1316,6 +1437,16 @@ app.get('/api/admin/trackers', async (req, res) => {
         });
       } else if (!merged.get(key).designation && entry?.latestDesignation) {
         merged.get(key).designation = String(entry.latestDesignation).trim();
+      }
+
+      if (merged.has(key)) {
+        const row = merged.get(key);
+        if (!row.last_report_received_at && entry?.latestReportAt) {
+          row.last_report_received_at = entry.latestReportAt;
+        }
+        if (entry?.latestReportAt && !row.identity_resolved) {
+          row.identity_resolved = true;
+        }
       }
     });
 
@@ -1524,7 +1655,7 @@ app.post('/api/admin/chat', async (req, res) => {
       ]);
 
       const lifetime = stats[0] || {};
-      const logs = await Report.find({ company_id, user_id }).sort({ timestamp: -1 }).limit(20);
+      const logs = dedupeReportsBySignature(await Report.find({ company_id, user_id }).sort({ timestamp: -1 }).limit(20));
       const appCounts = (lifetime.top_apps || []).reduce((acc, a) => { acc[a] = (acc[a] || 0) + 1; return acc; }, {});
       const top3Apps = Object.entries(appCounts).sort((a,b) => b[1] - a[1]).slice(0,3).map(x => x[0]).join(', ');
 
@@ -1631,11 +1762,13 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
     // 1. Check cache first
     const cached = await Summary.findOne({ company_id: compId, user_id: userId, date: targetDate });
     if (cached && !forceRegen) {
+      const cachedTimezoneOffset = Number(cached?.metadata?.timezone_offset ?? 0);
+      const timezoneMatches = cachedTimezoneOffset === timezoneOffsetMinutes;
       const cachedUpdatedAt = new Date(cached?.metadata?.last_updated || cached.updatedAt || 0);
       const latestLogAt = latestDayEventAt ? new Date(latestDayEventAt) : null;
       const isFresh = !latestLogAt || cachedUpdatedAt >= latestLogAt;
 
-      if (isFresh) {
+      if (isFresh && timezoneMatches) {
         return res.json({ summary: cached.content, cached: true });
       }
     }
@@ -1657,7 +1790,9 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
       { $sort: { eventAt: 1, createdAt: 1 } }
     ]);
 
-    if (logs.length === 0) {
+    const uniqueLogs = dedupeReportsBySignature(logs);
+
+    if (uniqueLogs.length === 0) {
       return res.json({ summary: `No activity logs found for ${targetDate}.`, cached: false });
     }
 
@@ -1665,17 +1800,25 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
       companyId: compId,
       userId,
       designation,
-      reports: logs,
+      reports: uniqueLogs,
       targetDate,
       timezoneOffsetMinutes
     });
 
-    const charactersAnalyzed = logs.reduce((acc, l) => acc + (l.ocr_text || "").length, 0);
+    const charactersAnalyzed = uniqueLogs.reduce((acc, l) => acc + (l.ocr_text || "").length, 0);
 
     // 4. Update Cache
     await Summary.findOneAndUpdate(
       { company_id: compId, user_id: userId, date: targetDate },
-      { content: summaryContent, metadata: { characters_processed: charactersAnalyzed, last_updated: new Date(), generated_by: 'deterministic-summary' } },
+      {
+        content: summaryContent,
+        metadata: {
+          characters_processed: charactersAnalyzed,
+          last_updated: new Date(),
+          generated_by: 'deterministic-summary',
+          timezone_offset: timezoneOffsetMinutes
+        }
+      },
       { upsert: true, new: true }
     );
 
