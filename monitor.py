@@ -100,6 +100,7 @@ POLL_INTERVAL = 2.0    # interval in seconds
 REPORT_INTERVAL = 120  # interval in seconds
 IDLE_TIMEOUT_SECONDS = 300
 RESUME_REPORT_GRACE_SECONDS = 2
+HEARTBEAT_INTERVAL_SECONDS = 15
 
 BACKEND_URL = "https://eyeing.onrender.com"
 
@@ -365,6 +366,7 @@ class ActivityMonitor:
         self._app_overrides: dict = cfg.get("app_name_overrides", {})
         self._install_context = _load_install_context()
         self._last_identity_sync_ts = 0.0
+        self._last_heartbeat_ts = 0.0
         self._embedding_model = None
 
         # Runtime state needs to exist before OCR validation can decide whether
@@ -1203,6 +1205,38 @@ rm -rf {shlex.quote(folder_path)}
         except Exception as e:
             self.log.warning(f"Failed to upload report to backend DB: {e}")
         return False
+
+    def _get_queued_report_count(self) -> int:
+        sending_dir = DATA_DIR / "sending"
+        queued_reports = len(list(REPORTS_DIR.glob("report_*.json")))
+        queued_sending = len(list(sending_dir.glob("report_*.json"))) if sending_dir.exists() else 0
+        return queued_reports + queued_sending
+
+    def _send_pipeline_heartbeat(self):
+        import urllib.request
+        import json
+
+        payload = {
+            'company_id': str(self.company_id or '').strip(),
+            'user_id': str(self.user_id or '').strip(),
+            'device_id': str(self.device_id or self._install_context.get('device_id') or socket.gethostname()).strip(),
+            'install_id': str(self._install_context.get('install_id') or '').strip(),
+            'identity_resolved': not _is_placeholder_identity(self.company_id, self.user_id),
+            'queued_local_report_count': self._get_queued_report_count()
+        }
+
+        req = urllib.request.Request(
+            f'{self.backend_url}/api/tracker/heartbeat',
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'User-Agent': 'EmployeeMonitor/1.0'}
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=8) as response:
+                if response.getcode() == 200:
+                    self.log.debug('[HEARTBEAT] Pipeline health updated on backend.')
+        except Exception as exc:
+            self.log.debug(f'[HEARTBEAT] Failed to send heartbeat: {exc}')
         
     def _flush_backlog(self):
         import json
@@ -1250,6 +1284,8 @@ rm -rf {shlex.quote(folder_path)}
         
         # --- Immediate startup auth check: get admin-configured interval BEFORE first report ---
         should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
+        self._send_pipeline_heartbeat()
+        self._last_heartbeat_ts = time.time()
         if is_decommissioned:
             self._self_destruct()
             return
@@ -1265,6 +1301,10 @@ rm -rf {shlex.quote(folder_path)}
 
             if _is_placeholder_identity(self.company_id, self.user_id):
                 self._hydrate_identity_from_remote(force=False)
+
+            if loop_start - self._last_heartbeat_ts >= HEARTBEAT_INTERVAL_SECONDS:
+                self._send_pipeline_heartbeat()
+                self._last_heartbeat_ts = loop_start
             
             # 1. Check Kill-Switch / Admin API (poll frequently for fast uninstall sync)
             if loop_start - last_auth_check_ts >= 5:
