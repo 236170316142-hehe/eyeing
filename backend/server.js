@@ -239,16 +239,76 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PYTHON_BIN="\${PYTHON:-}"
-if [ -z "$PYTHON_BIN" ]; then
-  if command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="$(command -v python3)"
-  elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="$(command -v python)"
-  else
-    echo "Python 3 is required but was not found on PATH."
-    exit 1
+install_python_and_tesseract() {
+  local python_found=0
+  local tesseract_found=0
+
+  if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+    python_found=1
   fi
+
+  if command -v tesseract >/dev/null 2>&1; then
+    tesseract_found=1
+  fi
+
+  if [ "$python_found" -eq 1 ] && [ "$tesseract_found" -eq 1 ]; then
+    return 0
+  fi
+
+  if [[ "$OSTYPE" == darwin* ]]; then
+    if ! command -v brew >/dev/null 2>&1; then
+      echo "Homebrew is required to auto-install Python/Tesseract on macOS."
+      echo "Install Homebrew first: https://brew.sh"
+      exit 1
+    fi
+
+    if [ "$python_found" -eq 0 ]; then
+      echo "Installing Python with Homebrew..."
+      brew install python
+    fi
+
+    if [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Tesseract with Homebrew..."
+      brew install tesseract
+    fi
+    return 0
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with apt..."
+      sudo apt-get update
+      sudo apt-get install -y python3 python3-pip tesseract-ocr
+    fi
+    return 0
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with dnf..."
+      sudo dnf install -y python3 python3-pip tesseract
+    fi
+    return 0
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with pacman..."
+      sudo pacman -Sy --noconfirm python python-pip tesseract
+    fi
+    return 0
+  fi
+
+  echo "Auto-install is not available for this Linux distribution. Install Python 3 and Tesseract manually."
+  exit 1
+}
+
+install_python_and_tesseract
+
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  PYTHON_BIN="$(command -v python)"
 fi
 
 exec "$PYTHON_BIN" install_and_run.py --autostart
@@ -278,6 +338,8 @@ Included files:
 Launcher:
 - Windows: install.bat
 - macOS and Linux: install.sh
+
+If Python or Tesseract are missing, the macOS/Linux launcher will try to install them automatically using the available package manager.
 
 Launch the installer from this folder, or run it from a terminal with the platform launcher.
 
@@ -750,6 +812,19 @@ app.post('/api/setup/save', async (req, res) => {
   try {
     const { employee_id, company_id, org_name, user_id, device_id, login_email, designation, login_provider, backend_url, install_id } = req.body;
 
+    let refererInstallId = '';
+    let refererDeviceId = '';
+    try {
+      const referer = String(req.headers.referer || '').trim();
+      if (referer) {
+        const refererUrl = new URL(referer);
+        refererInstallId = String(refererUrl.searchParams.get('install_id') || '').trim();
+        refererDeviceId = String(refererUrl.searchParams.get('device_id') || '').trim();
+      }
+    } catch (_error) {
+      // Ignore malformed referer; body payload remains the primary source.
+    }
+
     if (!employee_id || !company_id || !org_name || !user_id || !login_email) {
       return res.status(400).json({ error: 'Missing required setup fields' });
     }
@@ -771,10 +846,10 @@ app.post('/api/setup/save', async (req, res) => {
       designation: String(designation || '').trim(),
       login_provider: provider,
       backend_url: resolvedBackendUrl,
-      device_id: String(device_id || '').trim()
+      device_id: String(device_id || refererDeviceId || '').trim()
     };
 
-    const installId = String(install_id || '').trim();
+    const installId = String(install_id || refererInstallId || '').trim();
 
     if (!config.device_id && !installId) {
       return res.status(400).json({ error: 'Missing device identity. Provide device_id or install_id.' });
@@ -1232,22 +1307,11 @@ app.post('/api/admin/purge-user', async (req, res) => {
       return res.status(400).json({ error: 'Missing company_id or user_id' });
     }
 
-    const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: false });
-    const status = await TrackingStatus.findOneAndUpdate(
-      { company_id, user_id },
-      {
-        is_decommissioned: true,
-        is_tracking_active: false,
-        decommission_requested_at: new Date(),
-        last_updated_by: 'admin-purge-user'
-      },
-      { new: true, upsert: true }
-    );
+    const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: true });
     console.log(`[Admin] PURGED tracker data for ${user_id} @ ${company_id}`);
     res.json({
-      message: 'User data deleted from the cloud and queued for local uninstall.',
-      purgeCounts,
-      status
+      message: 'User data deleted from the cloud and removed from tracker directory.',
+      purgeCounts
     });
   } catch (error) {
     console.error('[-] Error purging tracker:', error);
