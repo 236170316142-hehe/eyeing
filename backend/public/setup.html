@@ -326,11 +326,14 @@
     const providerButtons = Array.from(document.querySelectorAll('.provider-btn'));
     const providerGoogle = document.getElementById('providerGoogle');
     const loginEmailInput = document.getElementById('login_email');
+    const deviceIdInput = document.getElementById('device_id');
     const googleHint = document.getElementById('googleHint');
     const googleAuthWrap = document.getElementById('googleAuthWrap');
     const query = new URLSearchParams(window.location.search);
-    const shouldAutoClose = query.get('autoclose') === '1';
+    const shouldAutoClose = query.get('autoclose') !== '0';
     const shouldRunMonitor = query.get('runMonitor') === '1';
+    const queryInstallId = (query.get('install_id') || '').trim();
+    const queryDeviceId = (query.get('device_id') || '').trim();
     let selectedProvider = 'email';
     let googleClientId = '';
     let googleEnabled = false;
@@ -372,6 +375,14 @@
       } else {
         googleAuthWrap.style.display = 'none';
         status.textContent = 'Email login selected.';
+      }
+    }
+
+    function hydrateIdentityFromQuery() {
+      if (queryDeviceId) {
+        deviceIdInput.value = queryDeviceId;
+        deviceIdInput.readOnly = true;
+        deviceIdInput.title = 'Auto-filled from installer link';
       }
     }
 
@@ -458,7 +469,7 @@
           document.getElementById('user_id').value = data.config.user_id || '';
           document.getElementById('company_id').value = data.config.company_id || '';
           document.getElementById('org_name').value = data.config.org_name || '';
-          document.getElementById('device_id').value = data.config.device_id || '';
+          deviceIdInput.value = data.config.device_id || '';
           loginEmailInput.value = data.config.login_email || '';
           document.getElementById('designation').value = data.config.designation || '';
           const savedProvider = data.config.login_provider === 'google' ? 'google' : 'email';
@@ -477,6 +488,11 @@
           }
         } else {
           status.textContent = 'No saved config found yet.';
+        }
+
+        if (queryDeviceId) {
+          deviceIdInput.value = queryDeviceId;
+          deviceIdInput.readOnly = true;
         }
       } catch (error) {
         status.textContent = 'Could not load current config.';
@@ -500,13 +516,16 @@
         user_id: document.getElementById('user_id').value.trim(),
         company_id: document.getElementById('company_id').value.trim(),
         org_name: document.getElementById('org_name').value.trim(),
-        device_id: document.getElementById('device_id').value.trim(),
+        device_id: deviceIdInput.value.trim() || queryDeviceId,
+        install_id: queryInstallId,
         backend_url: window.location.origin,
         login_provider: selectedProvider
       };
 
       if (selectedProvider === 'google' && googleEnabled && googleVerifiedEmail && payload.login_email !== googleVerifiedEmail) {
         status.textContent = 'Use the verified Google email or switch to email login.';
+        isSaving = false;
+        form.querySelector('button[type="submit"]').disabled = false;
         return;
       }
 
@@ -553,6 +572,7 @@
     loadCurrent.addEventListener('click', loadConfig);
 
     async function initialize() {
+      hydrateIdentityFromQuery();
       await loadAuthProviders();
       await loadConfig();
     }

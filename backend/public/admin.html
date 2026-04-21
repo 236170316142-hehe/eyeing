@@ -1388,7 +1388,7 @@
                 <button onclick="focusChat('${t.company_id}', '${t.user_id}')" class="btn-action" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">
                    💬 Chat
                 </button>
-                <button onclick="decommission('${t.company_id}', '${t.user_id}', this)" class="btn-action btn-decommission" ${isDecom ? 'disabled style="opacity:0.5"' : ''}>
+                <button onclick="decommission('${t.company_id}', '${t.user_id}', this, ${isDecom ? 'true' : 'false'})" class="btn-action btn-decommission">
                    🗑 ${isDecom ? 'Wiping' : 'End'}
                 </button>
               </div>
@@ -1765,22 +1765,34 @@
       }
     }
 
-    async function decommission(compId, userId, btn) {
-      if (!confirm(`Permanently decommission ${userId}? This will uninstall the software remotely.`)) return;
+    async function decommission(compId, userId, btn, alreadyDecommissioned = false) {
+      const hardDelete = Boolean(alreadyDecommissioned);
+      const prompt = hardDelete
+        ? `Permanently wipe ${userId} from cloud records and tracker list?`
+        : `Permanently decommission ${userId}? This will uninstall the software remotely.`;
+
+      if (!confirm(prompt)) return;
+
       try {
-        const response = await fetch('/api/admin/decommission', {
+        const endpoint = hardDelete ? '/api/admin/purge-user' : '/api/admin/decommission';
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ company_id: compId, user_id: userId })
         });
         if (!response.ok) throw new Error();
         const data = await response.json();
-        const warn = data?.offlineWarning ? ` ${data.offlineWarning}` : '';
-        showToast(`Kill order sent to ${userId}. Waiting for device confirmation...${warn}`);
-        // Reload the tracker list so the row shows "UNINSTALLING..." state
+        if (hardDelete) {
+          showToast(`Tracker ${userId} removed from cloud directory.`);
+        } else {
+          const warn = data?.offlineWarning ? ` ${data.offlineWarning}` : '';
+          showToast(`Kill order sent to ${userId}. Waiting for device confirmation...${warn}`);
+        }
+
+        // Reload tracker list after any destructive action.
         await loadTrackers();
       } catch {
-        showToast('Failed to decommission.');
+        showToast(hardDelete ? 'Failed to wipe tracker.' : 'Failed to decommission.');
       }
     }
 
