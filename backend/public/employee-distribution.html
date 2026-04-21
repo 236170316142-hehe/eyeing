@@ -76,7 +76,7 @@
 
     .actions {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin-top: 16px;
     }
@@ -148,7 +148,7 @@
     <section class="hero">
       <div>
         <h1>Employee Installer Distribution</h1>
-        <p class="subtitle">Download the employee package and a guided auto-installer. The installer downloads, extracts, runs install.bat twice, and opens the setup page with auto-close + monitor start hooks.</p>
+        <p class="subtitle">Download the latest live build for Windows, macOS, or Linux. Each ZIP is generated from the Render backend so employees always get the current package and backend URL.</p>
       </div>
       <div class="badge">Ready for employee handoff</div>
     </section>
@@ -156,33 +156,32 @@
     <section class="body">
       <div class="left">
         <h2 style="margin:0 0 6px;">Downloads</h2>
-        <p style="margin:0; color: var(--muted);">Share these with employees or run the PowerShell command directly on their PC.</p>
+        <p style="margin:0; color: var(--muted);">Pick the ZIP that matches the employee's OS. The archive includes the latest installer and monitor files.</p>
 
         <div class="actions">
-          <a class="btn primary" href="/api/employee/package.zip">Download Employee ZIP</a>
-          <a class="btn accent" href="/api/employee/bootstrap.ps1">Download Auto Installer (.ps1)</a>
+          <a class="btn primary" href="/api/employee/windows.zip">Download Windows ZIP</a>
+          <a class="btn accent" href="/api/employee/macos.zip">Download macOS ZIP</a>
+          <a class="btn" href="/api/employee/linux.zip">Download Linux ZIP</a>
         </div>
 
         <div class="block">
-          <h3>One-command install for employee PCs</h3>
-          <p>Run this in PowerShell on the employee machine:</p>
-          <code id="cmdBox">powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing {{ORIGIN}}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\employee-bootstrap.ps1; &amp; $env:TEMP\employee-bootstrap.ps1"</code>
+          <h3>Live package contents</h3>
+          <p>Every ZIP includes the current monitor, installer, requirements, and backend URL. Windows ships with <strong>install.bat</strong>; macOS and Linux ship with <strong>install.sh</strong> and a macOS double-click wrapper.</p>
         </div>
 
         <div class="note">
-          Note: Browser sandbox rules do not allow direct extraction or .bat execution from a webpage click. The provided PowerShell installer handles those steps reliably.
+          Note: the ZIPs are the supported direct-download path for employee rollout. They reflect the live Render deployment, so a fresh download always pulls the latest build.
         </div>
       </div>
 
       <aside class="right">
         <h2 style="margin:0 0 8px;">Expected Setup Flow</h2>
         <ol>
-          <li>Auto installer downloads and extracts the package.</li>
-          <li>install.bat is executed twice.</li>
-          <li>Employee setup page opens with automation flags.</li>
-          <li>Employee clicks Save.</li>
-          <li>Page attempts to close automatically.</li>
-          <li>Monitor launch is requested automatically.</li>
+          <li>Download the ZIP that matches the employee's OS.</li>
+          <li>Run the included installer for that platform.</li>
+          <li>Complete the browser setup page if prompted.</li>
+          <li>Save the employee profile.</li>
+          <li>The monitor starts and stays tied to the live backend.</li>
         </ol>
 
         <div class="block" style="margin-top: 16px;">
@@ -196,7 +195,6 @@
 
   <script>
     const origin = window.location.origin;
-    document.getElementById('cmdBox').textContent = `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\employee-bootstrap.ps1; & $env:TEMP\\employee-bootstrap.ps1"`;
     document.getElementById('setupUrl').textContent = `${origin}/setup.html?autoclose=1&runMonitor=1`;
   </script>
 </body>

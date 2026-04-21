@@ -335,6 +335,26 @@
     let googleClientId = '';
     let googleEnabled = false;
     let googleVerifiedEmail = '';
+    let isSaving = false;
+
+    function closeSetupWindow() {
+      try {
+        window.open('', '_self');
+        window.close();
+      } catch (_error) {
+        // Ignore. Some browsers block close() unless the tab was opened programmatically.
+      }
+
+      setTimeout(() => {
+        try {
+          if (!window.closed) {
+            window.location.replace('about:blank');
+          }
+        } catch (_error) {
+          // Ignore fallback failures as well.
+        }
+      }, 250);
+    }
 
     function setProvider(provider) {
       selectedProvider = provider;
@@ -465,6 +485,12 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      if (isSaving) {
+        return;
+      }
+
+      isSaving = true;
+      form.querySelector('button[type="submit"]').disabled = true;
       status.textContent = 'Saving...';
 
       const payload = {
@@ -494,6 +520,7 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Save failed');
         status.textContent = 'Setup saved successfully.';
+        sessionStorage.setItem('eyeing-setup-saved', '1');
 
         if (shouldRunMonitor) {
           try {
@@ -513,13 +540,13 @@
 
         if (shouldAutoClose) {
           status.textContent += ' Closing setup page...';
-          setTimeout(() => {
-            window.open('', '_self');
-            window.close();
-          }, 800);
+          setTimeout(closeSetupWindow, 500);
         }
       } catch (error) {
         status.textContent = error.message || 'Save failed.';
+      } finally {
+        isSaving = false;
+        form.querySelector('button[type="submit"]').disabled = false;
       }
     });
 
