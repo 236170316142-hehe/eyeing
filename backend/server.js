@@ -12,6 +12,7 @@ const { OAuth2Client } = require('google-auth-library');
 const Report = require('./models/Report');
 const TrackingStatus = require('./models/TrackingStatus');
 const Summary = require('./models/Summary');
+const SetupProfile = require('./models/SetupProfile');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -47,6 +48,55 @@ function buildDayBounds(date) {
 function getLocalDateString(date = new Date()) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
+}
+
+function normalizeIdentity(value) {
+  return String(value || '').trim();
+}
+
+function shouldResolveIdentity(companyId, userId) {
+  const company = normalizeIdentity(companyId).toUpperCase();
+  const user = normalizeIdentity(userId).toUpperCase();
+
+  if (!company || !user) return true;
+  if (company === 'UNKNOWN' || user === 'UNKNOWN') return true;
+  if (company === 'ACME_001' && user === 'DEFAULT_USER') return true;
+
+  return false;
+}
+
+async function resolveSetupProfile({ installId, deviceId }) {
+  if (!HAS_MONGO) return null;
+
+  const install = normalizeIdentity(installId);
+  const device = normalizeIdentity(deviceId);
+
+  const clauses = [];
+  if (install) clauses.push({ install_id: install });
+  if (device) clauses.push({ device_id: device });
+  if (!clauses.length) return null;
+
+  return SetupProfile.findOne({ $or: clauses }).sort({ updatedAt: -1 }).lean();
+}
+
+async function purgeTrackerArtifacts(companyId, userId, { removeTrackingStatus = false } = {}) {
+  const [reportDel, summaryDel, setupDel] = await Promise.all([
+    Report.deleteMany({ company_id: companyId, user_id: userId }),
+    Summary.deleteMany({ company_id: companyId, user_id: userId }),
+    SetupProfile.deleteMany({ company_id: companyId, user_id: userId }),
+  ]);
+
+  let statusDel = null;
+  if (removeTrackingStatus) {
+    statusDel = await TrackingStatus.deleteOne({ company_id: companyId, user_id: userId });
+  }
+
+  return {
+    reportsDeleted: reportDel.deletedCount || 0,
+    summariesDeleted: summaryDel.deletedCount || 0,
+    setupProfilesDeleted: setupDel.deletedCount || 0,
+    trackingStatusDeleted: statusDel?.deletedCount || 0,
+  };
 }
 
 // Enforce MongoDB Atlas connection string from .env
@@ -162,6 +212,110 @@ async function getUserDesignation(companyId, userId) {
   return '';
 }
 
+function parseReportMoment(report) {
+  const rawValue = report?.eventAt || report?.timestamp || report?.createdAt;
+  const moment = new Date(rawValue);
+  return Number.isNaN(moment.getTime()) ? null : moment;
+}
+
+function formatSummaryTime(moment, timezoneOffsetMinutes = 0) {
+  if (!moment) return '--';
+  const shifted = new Date(moment.getTime() - (Number(timezoneOffsetMinutes) || 0) * 60000);
+  return `${String(shifted.getUTCHours() % 12 || 12)}:${String(shifted.getUTCMinutes()).padStart(2, '0')} ${shifted.getUTCHours() >= 12 ? 'PM' : 'AM'}`;
+}
+
+function formatSummaryDuration(seconds) {
+  const totalSeconds = Math.max(0, Math.round(Number(seconds || 0)));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (minutes <= 0) {
+    return `${remainingSeconds || 1} sec`;
+  }
+
+  if (remainingSeconds === 0) {
+    return `${minutes} min`;
+  }
+
+  return `${minutes} min ${remainingSeconds} sec`;
+}
+
+function buildDeterministicDailySummary({ companyId, userId, designation, reports, targetDate, timezoneOffsetMinutes = 0 }) {
+  const sortedReports = [...reports]
+    .map((report) => ({ report, moment: parseReportMoment(report) }))
+    .filter((entry) => entry.moment)
+    .sort((left, right) => left.moment - right.moment);
+
+  const activeMinutes = sortedReports.reduce((sum, entry) => sum + Number(entry.report.time_active_sec || 0), 0) / 60;
+  const idleMinutes = sortedReports.reduce((sum, entry) => sum + Number(entry.report.time_idle_sec || 0), 0) / 60;
+  const totalKeys = sortedReports.reduce((sum, entry) => sum + Number(entry.report.keyboard_key_presses || 0), 0);
+  const totalClicks = sortedReports.reduce((sum, entry) => sum + Number(entry.report.mouse_clicks || 0), 0);
+  const focusRatio = Math.round((activeMinutes / Math.max(1, activeMinutes + idleMinutes)) * 100);
+
+  const appTotals = new Map();
+  sortedReports.forEach(({ report }) => {
+    const appName = String(report.active_app || 'Unknown').trim() || 'Unknown';
+    const seconds = Number(report.time_active_sec || 0);
+    appTotals.set(appName, (appTotals.get(appName) || 0) + seconds);
+  });
+
+  const topAppEntry = Array.from(appTotals.entries())
+    .sort((left, right) => right[1] - left[1])[0];
+
+  const topApp = topAppEntry ? `${topAppEntry[0]} (${Math.round(topAppEntry[1] / 60)}m)` : 'N/A';
+  const unknownReports = sortedReports.filter(({ report }) => {
+    const app = String(report.active_app || '').trim().toLowerCase();
+    return !app || app === 'unknown' || app === 'unknown application';
+  }).length;
+
+  const firstMoment = sortedReports[0]?.moment || null;
+  const lastMoment = sortedReports[sortedReports.length - 1]?.moment || null;
+
+  const sessionLines = sortedReports.slice(0, 4).map(({ report, moment }) => {
+    const start = formatSummaryTime(moment, timezoneOffsetMinutes);
+    const duration = formatSummaryDuration(report.time_active_sec);
+    const endMoment = moment ? new Date(moment.getTime() + Math.max(0, Number(report.time_active_sec || 0)) * 1000) : null;
+    const end = formatSummaryTime(endMoment, timezoneOffsetMinutes);
+    const appName = String(report.active_app || 'Unknown').trim() || 'Unknown';
+    const title = String(report.window_title || 'Untitled Window').trim() || 'Untitled Window';
+    return `- ${start} - ${end}: ${appName} - ${title} (${duration})`;
+  });
+
+  const noMoreSessionsLine = sortedReports.length > 4 ? '' : '- No other significant sessions were recorded.';
+
+  const opening = activeMinutes > 0
+    ? `The user had ${activeMinutes.toFixed(1)} minutes of active time and ${idleMinutes.toFixed(1)} minutes idle across ${sortedReports.length} report(s) on ${targetDate}.`
+    : `No active work time was recorded for ${targetDate}.`;
+
+  const workSummary = unknownReports > 0
+    ? `Most of the day was spent in unknown applications, and ${unknownReports} report(s) were not tied to a clear app name.`
+    : `The main work was concentrated in ${topApp}.`;
+
+  const roleContext = designation
+    ? `As a ${designation}, the activity pattern suggests ${focusRatio >= 60 ? 'a steady work session' : 'low focus and fragmented execution'}.`
+    : `The activity pattern suggests ${focusRatio >= 60 ? 'a steady work session' : 'low focus and fragmented execution'}.`;
+
+  return [
+    `[METRICS] focus_time_percent: ${focusRatio} productive_time_mins: ${Math.round(activeMinutes)} stuck_signals: ${unknownReports} repetitive_work_mins: 0 [END_METRICS]`,
+    `# Daily Summary: User ${userId}${designation ? ` (${designation})` : ''}`,
+    '',
+    '### 💡 What Work Was Done',
+    workSummary,
+    opening,
+    roleContext,
+    '',
+    '### 🕒 Session Analysis',
+    ...(sessionLines.length ? sessionLines : ['- No report sessions were recorded.']),
+    noMoreSessionsLine,
+    '',
+    '### 📊 Detailed Insights',
+    `The work pattern is measured from ${sortedReports.length} report(s) for ${companyId} / ${userId}. The top application was ${topApp}, total input volume was ${totalKeys + totalClicks}, and the focus ratio was ${focusRatio}%.`,
+    focusRatio >= 60
+      ? 'The day appears reasonably productive and time-aligned with sustained active windows.'
+      : 'The day shows weak concentration and a high likelihood of context switching or stalled activity.',
+  ].filter(Boolean).join('\n');
+}
+
 // MongoDB Connection
 if (HAS_MONGO) {
   mongoose.connect(MONGO_URI)
@@ -175,6 +329,23 @@ if (HAS_MONGO) {
 app.post('/api/reports', async (req, res) => {
   try {
     const reportData = req.body;
+
+    // If monitor is still on placeholder IDs, remap to saved setup profile by install_id/device_id.
+    if (shouldResolveIdentity(reportData.company_id, reportData.user_id)) {
+      const profile = await resolveSetupProfile({
+        installId: reportData.install_id,
+        deviceId: reportData.device_id
+      });
+
+      if (profile) {
+        reportData.company_id = normalizeIdentity(profile.company_id);
+        reportData.user_id = normalizeIdentity(profile.user_id);
+        reportData.org_name = normalizeIdentity(profile.org_name) || reportData.org_name;
+        reportData.employee_id = normalizeIdentity(profile.employee_id) || reportData.employee_id;
+        reportData.designation = normalizeIdentity(profile.designation) || reportData.designation;
+        reportData.device_id = normalizeIdentity(profile.device_id) || reportData.device_id;
+      }
+    }
     
     // Automatically map older tester reports: if user_id is missing but employee_id exists, use it.
     if (!reportData.user_id && reportData.employee_id) {
@@ -213,6 +384,10 @@ app.post('/api/reports', async (req, res) => {
 
 app.get('/api/setup/config', async (_req, res) => {
   try {
+    if (!isLocalRequest(_req)) {
+      return res.json({ exists: false });
+    }
+
     if (!fs.existsSync(CONFIG_PATH)) {
       return res.json({ exists: false });
     }
@@ -276,10 +451,17 @@ app.get('/api/employee/bootstrap.ps1', (req, res) => {
 $ErrorActionPreference = 'Stop'
 
 $packageUrl = '${origin}/api/employee/package.zip'
-$setupUrl = '${origin}/setup.html?autoclose=1&runMonitor=1'
 $targetRoot = Join-Path $env:USERPROFILE 'Desktop'
 $targetDir = Join-Path $targetRoot 'EmployeeMonitorPackage'
 $zipPath = Join-Path $env:TEMP 'employee-monitor-package.zip'
+$installId = [guid]::NewGuid().ToString('N')
+$deviceId = $env:COMPUTERNAME
+
+$env:INSTALL_ID = $installId
+$env:DEVICE_ID = $deviceId
+$env:SKIP_SETUP_OPEN = '1'
+
+$setupUrl = '${origin}/setup.html?autoclose=1&runMonitor=1&device_id=' + [uri]::EscapeDataString($deviceId) + '&install_id=' + [uri]::EscapeDataString($installId)
 
 Write-Host 'Downloading employee package...'
 Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath
@@ -290,6 +472,7 @@ if (Test-Path $targetDir) {
 
 Write-Host 'Extracting package...'
 Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
+cmd /c attrib +h +s "$targetDir" >nul 2>&1
 
 $installer = Join-Path $targetDir 'install.bat'
 if (-not (Test-Path $installer)) {
@@ -393,7 +576,7 @@ app.post('/api/setup/google/verify', async (req, res) => {
 
 app.post('/api/setup/save', async (req, res) => {
   try {
-    const { employee_id, company_id, org_name, user_id, device_id, login_email, designation, login_provider, backend_url } = req.body;
+    const { employee_id, company_id, org_name, user_id, device_id, login_email, designation, login_provider, backend_url, install_id } = req.body;
 
     if (!employee_id || !company_id || !org_name || !user_id || !login_email) {
       return res.status(400).json({ error: 'Missing required setup fields' });
@@ -407,7 +590,6 @@ app.post('/api/setup/save', async (req, res) => {
       ? requestOrigin
       : incomingBackendUrl;
 
-    ensureParentDir(CONFIG_PATH);
     const config = {
       employee_id: String(employee_id).trim(),
       company_id: String(company_id).trim(),
@@ -417,10 +599,23 @@ app.post('/api/setup/save', async (req, res) => {
       designation: String(designation || '').trim(),
       login_provider: provider,
       backend_url: resolvedBackendUrl,
-      device_id: String(device_id || os.hostname()).trim()
+      device_id: String(device_id || '').trim()
     };
 
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+    const installId = String(install_id || '').trim();
+
+    if (!config.device_id && !installId) {
+      return res.status(400).json({ error: 'Missing device identity. Provide device_id or install_id.' });
+    }
+
+    if (!config.device_id) {
+      config.device_id = `install:${installId}`;
+    }
+
+    if (isLocalRequest(req)) {
+      ensureParentDir(CONFIG_PATH);
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+    }
 
     let trackerWarning = '';
 
@@ -444,13 +639,77 @@ app.post('/api/setup/save', async (req, res) => {
       console.warn('[-] Tracker registration skipped during setup save:', trackerWarning);
     }
 
+    // Persist setup profile for remote monitor identity resolution.
+    if (HAS_MONGO) {
+      try {
+        const selector = installId
+          ? { install_id: installId }
+          : { device_id: config.device_id };
+
+        await SetupProfile.findOneAndUpdate(
+          selector,
+          {
+            install_id: installId || undefined,
+            device_id: config.device_id,
+            employee_id: config.employee_id,
+            company_id: config.company_id,
+            org_name: config.org_name,
+            user_id: config.user_id,
+            login_email: config.login_email,
+            designation: config.designation,
+            login_provider: config.login_provider,
+            backend_url: config.backend_url,
+            last_seen_at: new Date()
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } catch (profileError) {
+        console.warn('[-] Setup profile persistence skipped:', profileError?.message || profileError);
+      }
+    }
+
     res.json({
       message: 'Setup saved successfully',
       config,
+      install_id: installId || undefined,
       warning: trackerWarning || undefined
     });
   } catch (error) {
     console.error('[-] Error saving setup config:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+app.get('/api/setup/resolve', async (req, res) => {
+  try {
+    const installId = normalizeIdentity(req.query.install_id);
+    const deviceId = normalizeIdentity(req.query.device_id);
+
+    if (!installId && !deviceId) {
+      return res.status(400).json({ error: 'Missing install_id or device_id' });
+    }
+
+    const profile = await resolveSetupProfile({ installId, deviceId });
+    if (!profile) {
+      return res.json({ exists: false });
+    }
+
+    return res.json({
+      exists: true,
+      config: {
+        employee_id: normalizeIdentity(profile.employee_id),
+        company_id: normalizeIdentity(profile.company_id),
+        org_name: normalizeIdentity(profile.org_name),
+        user_id: normalizeIdentity(profile.user_id),
+        login_email: normalizeIdentity(profile.login_email),
+        designation: normalizeIdentity(profile.designation),
+        login_provider: normalizeIdentity(profile.login_provider) || 'email',
+        backend_url: normalizeIdentity(profile.backend_url) || getPublicBaseUrl(req),
+        device_id: normalizeIdentity(profile.device_id)
+      }
+    });
+  } catch (error) {
+    console.error('[-] Error resolving setup profile:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -611,9 +870,18 @@ app.get('/api/reports/employee/:company_id/:user_id/stats', async (req, res) => 
 // 3. Check if tracking is authorized for a specific user
 app.get('/api/tracking-status', async (req, res) => {
   try {
-    const { company_id, user_id } = req.query;
+    let { company_id, user_id, device_id, install_id } = req.query;
+
+    if (shouldResolveIdentity(company_id, user_id)) {
+      const profile = await resolveSetupProfile({ installId: install_id, deviceId: device_id });
+      if (profile) {
+        company_id = normalizeIdentity(profile.company_id);
+        user_id = normalizeIdentity(profile.user_id);
+      }
+    }
+
     if (!company_id || !user_id) {
-      return res.status(400).json({ error: "Missing company_id or user_id" });
+      return res.status(400).json({ error: "Missing company_id or user_id (or unresolved device_id/install_id)" });
     }
 
     // Upsert the status so new users default to true (active)
@@ -638,7 +906,9 @@ app.get('/api/tracking-status', async (req, res) => {
     res.json({
       is_tracking_active: status.is_tracking_active,
       is_decommissioned: status.is_decommissioned || false,
-      report_interval: status.report_interval || 120
+      report_interval: status.report_interval || 120,
+      company_id: status.company_id,
+      user_id: status.user_id
     });
   } catch (error) {
     console.error('[-] Error checking tracking status:', error);
@@ -750,6 +1020,8 @@ app.post('/api/admin/decommission', async (req, res) => {
     if (!company_id || !user_id) {
       return res.status(400).json({ error: "Missing company_id or user_id" });
     }
+
+    const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: false });
     const updated = await TrackingStatus.findOneAndUpdate(
       { company_id, user_id },
       {
@@ -769,12 +1041,44 @@ app.post('/api/admin/decommission', async (req, res) => {
 
     console.log(`[Admin] DECOMMISSIONED tracker for ${user_id} @ ${company_id}`);
     res.json({
-      message: "Tracker marked for decommissioning. It will self-delete and confirm on next check-in.",
+      message: "Tracker data purged from the cloud and marked for local self-delete.",
       offlineWarning: offlineWarning || undefined,
-      status: updated
+      status: updated,
+      purgeCounts
     });
   } catch (error) {
     console.error('[-] Error decommissioning:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 6b. Hard delete a tracker and all cloud data immediately.
+app.post('/api/admin/purge-user', async (req, res) => {
+  try {
+    const { company_id, user_id } = req.body;
+    if (!company_id || !user_id) {
+      return res.status(400).json({ error: 'Missing company_id or user_id' });
+    }
+
+    const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: false });
+    const status = await TrackingStatus.findOneAndUpdate(
+      { company_id, user_id },
+      {
+        is_decommissioned: true,
+        is_tracking_active: false,
+        decommission_requested_at: new Date(),
+        last_updated_by: 'admin-purge-user'
+      },
+      { new: true, upsert: true }
+    );
+    console.log(`[Admin] PURGED tracker data for ${user_id} @ ${company_id}`);
+    res.json({
+      message: 'User data deleted from the cloud and queued for local uninstall.',
+      purgeCounts,
+      status
+    });
+  } catch (error) {
+    console.error('[-] Error purging tracker:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -923,6 +1227,7 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
     const { compId, userId } = req.params;
     const { date, regen } = req.query;
     const forceRegen = regen === 'true';
+    const timezoneOffsetMinutes = Number(req.query.tz_offset ?? req.query.timezoneOffset ?? 0);
     
     // Default to today if no date provided
     const targetDate = date || getLocalDateString();
@@ -984,63 +1289,21 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
       return res.json({ summary: `No activity logs found for ${targetDate}.`, cached: false });
     }
 
-    const charactersAnalyzed = logs.reduce((acc, l) => acc + (l.ocr_text || "").length, 0);
-
-    // 3. Prepare Prompt for Llama 3
-    const context = logs.map(l => 
-      `[${new Date(l.eventAt || l.createdAt || l.timestamp).toLocaleTimeString()}] App: ${l.active_app} | Window: ${l.window_title} | Active: ${l.time_active_sec}s`
-    ).join('\n');
-
-    const body = {
-      model: "meta/llama-3.1-70b-instruct",
-      messages: [
-        { 
-          role: "system", 
-          content: `You are a Professional Work Summarizer. 
-          Generate a detailed report for the employee based on their activity logs for TODAY.
-          If a designation is available, use it to frame the analysis around the responsibilities expected for that role.
-          
-          MANDATORY: You must start your response with a METRICS block in this format:
-          [METRICS]
-          focus_time_percent: 75
-          productive_time_mins: 345
-          stuck_signals: 2
-          repetitive_work_mins: 75
-          [END_METRICS]
-
-          FOLLOWED BY THIS MARKDOWN STRUCTURE:
-          # Daily Summary: [Employee Name/ID]
-          
-          ### 💡 What Work Was Done
-          [Provide a 2-3 sentence summary.]
-          
-          ### 🕒 Session Analysis
-          [List 2-3 sessions with times.]
-          
-          ### 📊 Detailed Insights
-          [Deep dive into productivity.]`
-        },
-        { role: "user", content: `Here are the logs for user ${userId}${designation ? ` (${designation})` : ''}:\n${context}` }
-      ],
-      temperature: 0.2
-    };
-
-    const nv_resp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.LLM_API_KEY || process.env.NVIDIA_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
+    const summaryContent = buildDeterministicDailySummary({
+      companyId: compId,
+      userId,
+      designation,
+      reports: logs,
+      targetDate,
+      timezoneOffsetMinutes
     });
 
-    const ai_data = await nv_resp.json();
-    const summaryContent = ai_data.choices[0].message.content;
+    const charactersAnalyzed = logs.reduce((acc, l) => acc + (l.ocr_text || "").length, 0);
 
     // 4. Update Cache
     await Summary.findOneAndUpdate(
       { company_id: compId, user_id: userId, date: targetDate },
-      { content: summaryContent, metadata: { characters_processed: charactersAnalyzed, last_updated: new Date() } },
+      { content: summaryContent, metadata: { characters_processed: charactersAnalyzed, last_updated: new Date(), generated_by: 'deterministic-summary' } },
       { upsert: true, new: true }
     );
 
