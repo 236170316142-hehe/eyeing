@@ -193,6 +193,182 @@ function withTimeout(promise, ms, label = 'Operation') {
   ]);
 }
 
+const EMPLOYEE_PACKAGE_DEFINITIONS = {
+  windows: {
+    label: 'Windows',
+    archiveName: 'employee-monitor-windows.zip',
+    includeBatchLauncher: true,
+    includeUnixLauncher: false
+  },
+  macos: {
+    label: 'macOS',
+    archiveName: 'employee-monitor-macos.zip',
+    includeBatchLauncher: false,
+    includeUnixLauncher: true,
+    includeMacCommandLauncher: true
+  },
+  linux: {
+    label: 'Linux',
+    archiveName: 'employee-monitor-linux.zip',
+    includeBatchLauncher: false,
+    includeUnixLauncher: true,
+    includeMacCommandLauncher: false
+  }
+};
+
+function normalizeEmployeePackagePlatform(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (['win', 'windows', 'win32'].includes(normalized)) return 'windows';
+  if (['mac', 'macos', 'darwin', 'osx'].includes(normalized)) return 'macos';
+  if (['linux', 'ubuntu', 'debian'].includes(normalized)) return 'linux';
+
+  if (EMPLOYEE_PACKAGE_DEFINITIONS[normalized]) return normalized;
+
+  return 'windows';
+}
+
+function getEmployeePackageDefinition(platform) {
+  return EMPLOYEE_PACKAGE_DEFINITIONS[normalizeEmployeePackagePlatform(platform)];
+}
+
+function buildUnixLauncherScript() {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+PYTHON_BIN="\${PYTHON:-}"
+if [ -z "$PYTHON_BIN" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+  else
+    echo "Python 3 is required but was not found on PATH."
+    exit 1
+  fi
+fi
+
+exec "$PYTHON_BIN" install_and_run.py --autostart
+`;
+}
+
+function buildMacCommandLauncher() {
+  return `#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec /bin/bash "$SCRIPT_DIR/install.sh"
+`;
+}
+
+function buildEmployeePackageReadme(platformLabel, origin) {
+  return `Employee Monitor ${platformLabel} package
+
+This archive is generated live from the Render backend so it always includes the latest app files and backend URL.
+
+Included files:
+- monitor.py
+- install_and_run.py
+- requirements.txt
+- backend_url.txt
+- backend/public/setup.html
+- backend/public/employee-distribution.html
+
+Launcher:
+- Windows: install.bat
+- macOS and Linux: install.sh
+
+Launch the installer from this folder, or run it from a terminal with the platform launcher.
+
+Backend URL:
+${origin}
+`;
+}
+
+function buildEmployeePackageManifest(platformDefinition, origin) {
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    platform: platformDefinition.label,
+    backendUrl: origin,
+    files: [
+      'monitor.py',
+      'install_and_run.py',
+      'requirements.txt',
+      'backend_url.txt',
+      'backend/public/setup.html',
+      'backend/public/employee-distribution.html'
+    ]
+  }, null, 2);
+}
+
+function addEmployeePackageFiles(archive, platformDefinition, origin) {
+  const rootFiles = [
+    'monitor.py',
+    'install_and_run.py',
+    'requirements.txt'
+  ];
+
+  rootFiles.forEach((relativePath) => {
+    const absPath = path.join(ROOT_DIR, relativePath);
+    if (fs.existsSync(absPath)) {
+      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
+    }
+  });
+
+  if (platformDefinition.includeBatchLauncher) {
+    const installBat = path.join(ROOT_DIR, 'install.bat');
+    if (fs.existsSync(installBat)) {
+      archive.file(installBat, { name: 'install.bat' });
+    }
+  }
+
+  const webAssets = [
+    'backend/public/setup.html',
+    'backend/public/employee-distribution.html'
+  ];
+
+  webAssets.forEach((relativePath) => {
+    const absPath = path.join(ROOT_DIR, relativePath);
+    if (fs.existsSync(absPath)) {
+      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
+    }
+  });
+
+  if (platformDefinition.includeUnixLauncher) {
+    archive.append(buildUnixLauncherScript(), { name: 'install.sh', mode: 0o755 });
+
+    if (platformDefinition.includeMacCommandLauncher) {
+      archive.append(buildMacCommandLauncher(), { name: 'install.command', mode: 0o755 });
+    }
+  }
+
+  archive.append(buildEmployeePackageReadme(platformDefinition.label, origin), { name: 'README.txt' });
+  archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'manifest.json' });
+  archive.append(`${origin}\n`, { name: 'backend_url.txt' });
+}
+
+function streamEmployeePackage(req, res, platform) {
+  const origin = getPublicBaseUrl(req);
+  const platformDefinition = getEmployeePackageDefinition(platform);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', `attachment; filename="${platformDefinition.archiveName}"`);
+
+  archive.on('error', (error) => {
+    console.error('[-] Package build error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to build package zip.' });
+    }
+  });
+
+  archive.pipe(res);
+  addEmployeePackageFiles(archive, platformDefinition, origin);
+  archive.finalize();
+}
+
 async function getUserDesignation(companyId, userId) {
   const latestWithDesignation = await Report.findOne({
     company_id: companyId,
@@ -402,47 +578,19 @@ app.get('/api/setup/config', async (_req, res) => {
 });
 
 app.get('/api/employee/package.zip', (req, res) => {
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  const origin = getPublicBaseUrl(req);
+  streamEmployeePackage(req, res, 'windows');
+});
 
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-package.zip"');
+app.get('/api/employee/windows.zip', (req, res) => {
+  streamEmployeePackage(req, res, 'windows');
+});
 
-  archive.on('error', (error) => {
-    console.error('[-] Package build error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to build package zip.' });
-    }
-  });
+app.get('/api/employee/macos.zip', (req, res) => {
+  streamEmployeePackage(req, res, 'macos');
+});
 
-  archive.pipe(res);
-
-  const filesToInclude = [
-    'monitor.py',
-    'install.bat',
-    'install_and_run.py',
-    'requirements.txt'
-  ];
-
-  filesToInclude.forEach((relativePath) => {
-    const absPath = path.join(ROOT_DIR, relativePath);
-    if (fs.existsSync(absPath)) {
-      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
-    }
-  });
-
-  const dirsToInclude = [];
-
-  dirsToInclude.forEach((relativeDir) => {
-    const absDir = path.join(ROOT_DIR, relativeDir);
-    if (fs.existsSync(absDir)) {
-      archive.directory(absDir, relativeDir.replace(/\\/g, '/'));
-    }
-  });
-
-  archive.append(`${origin}\n`, { name: 'backend_url.txt' });
-
-  archive.finalize();
+app.get('/api/employee/linux.zip', (req, res) => {
+  streamEmployeePackage(req, res, 'linux');
 });
 
 app.get('/api/employee/bootstrap.ps1', (req, res) => {
