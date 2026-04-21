@@ -259,10 +259,21 @@ def try_install_tesseract_windows():
     return False
 
 def check_tesseract(skip_auto_install=False):
+    bundled_candidates = [
+        script_dir() / 'tesseract' / 'tesseract.exe',
+        script_dir() / 'Tesseract-OCR' / 'tesseract.exe',
+        script_dir() / 'tesseract.exe'
+    ]
+
     candidates = [
         os.environ.get('TESSERACT_CMD', '').strip(),
         shutil.which('tesseract'),
     ]
+
+    for candidate in bundled_candidates:
+        if candidate.exists():
+            candidates.insert(0, str(candidate))
+            break
 
     if is_windows():
         candidates.extend([

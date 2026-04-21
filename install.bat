@@ -44,7 +44,7 @@ attrib +h +s "%~dp0" >nul 2>&1
 
 if "%SKIP_SETUP_OPEN%"=="1" goto skip_setup_open
 echo Opening web onboarding page...
-start "" "%BACKEND_URL%/setup.html?autoclose=1^&runMonitor=1^&device_id=%DEVICE_ID%^&install_id=%INSTALL_ID%"
+start "" "%BACKEND_URL%/setup.html?autoclose=1^&device_id=%DEVICE_ID%^&install_id=%INSTALL_ID%"
 
 :skip_setup_open
 
