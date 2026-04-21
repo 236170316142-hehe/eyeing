@@ -267,7 +267,16 @@ def _load_install_context() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {}
+    return {
+        "install_id": str(os.environ.get('INSTALL_ID', '')).strip(),
+        "device_id": str(
+            os.environ.get('DEVICE_ID', '') or
+            os.environ.get('COMPUTERNAME', '') or
+            os.environ.get('HOSTNAME', '') or
+            socket.gethostname()
+        ).strip(),
+        "backend_url": str(os.environ.get('BACKEND_URL', '')).strip(),
+    }
 
 
 def _resolve_tesseract_command() -> str:
@@ -876,10 +885,6 @@ class ActivityMonitor:
             self._last_report_ts = time.time() - max(0, self._report_interval - RESUME_REPORT_GRACE_SECONDS)
 
     def _save_report(self, ocr_text: str, ocr_confidence: float, ocr_word_count: int):
-        if _is_placeholder_identity(self.company_id, self.user_id):
-            self.log.warning("[IDENTITY] Placeholder IDs still active; skipping report save until setup profile resolves.")
-            return
-
         self._report_counter += 1
         ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = REPORTS_DIR / f"report_{self._report_counter}_{ts}.json"
@@ -960,6 +965,9 @@ class ActivityMonitor:
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
         self.log.info(f"Report saved locally: {fname}")
+
+        if _is_placeholder_identity(self.company_id, self.user_id):
+            self.log.info("[IDENTITY] Report queued locally with install/device IDs; upload will retry after setup resolution.")
         
         # Attempt to flush the backlog (this handles both the new report and any failed past reports)
         self._flush_backlog()
@@ -1154,6 +1162,28 @@ rm -rf {shlex.quote(folder_path)}
         import urllib.request
         import json
         from pathlib import Path
+
+        # Normalize payload identity before upload so queued placeholder reports
+        # can be repaired and ingested once setup profile resolves.
+        payload_company = str(payload.get('company_id') or '').strip()
+        payload_user = str(payload.get('user_id') or '').strip()
+        if _is_placeholder_identity(payload_company, payload_user):
+            if _is_placeholder_identity(self.company_id, self.user_id):
+                self.log.debug("[IDENTITY] Upload deferred: local identity is still unresolved.")
+                return False
+
+            payload['company_id'] = str(self.company_id or '').strip()
+            payload['user_id'] = str(self.user_id or '').strip()
+            payload['org_name'] = str(self.org_name or payload.get('org_name') or '').strip()
+            payload['employee_id'] = str(self.employee_id or payload.get('employee_id') or '').strip()
+            payload['designation'] = str(self.designation or payload.get('designation') or '').strip()
+
+        payload_device = str(payload.get('device_id') or '').strip()
+        if not payload_device:
+            payload['device_id'] = str(self.device_id or self._install_context.get('device_id') or socket.gethostname()).strip()
+
+        if not str(payload.get('install_id') or '').strip():
+            payload['install_id'] = str(self._install_context.get('install_id') or '').strip()
         
         req = urllib.request.Request(
             f'{self.backend_url}/api/reports',

