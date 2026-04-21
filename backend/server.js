@@ -34,10 +34,11 @@ function getPublicBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-function buildDayBounds(date) {
+function buildDayBounds(date, timezoneOffsetMinutes = 0) {
   const [y, m, d] = date.split('-').map(Number);
-  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
-  const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+  const offsetMs = Number(timezoneOffsetMinutes) * 60000;
+  const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) + offsetMs);
+  const end = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999) + offsetMs);
 
   return {
     start,
@@ -1187,6 +1188,7 @@ app.get('/api/reports/employee/:company_id/:user_id', async (req, res) => {
   try {
     const { company_id, user_id } = req.params;
     const { date } = req.query; 
+    const timezoneOffsetMinutes = Number(req.query.tz_offset ?? req.query.timezoneOffset ?? 0);
 
     const pipeline = [
       { $match: { company_id, user_id } },
@@ -1203,7 +1205,7 @@ app.get('/api/reports/employee/:company_id/:user_id', async (req, res) => {
     ];
 
     if (date) {
-      const day = buildDayBounds(date);
+      const day = buildDayBounds(date, timezoneOffsetMinutes);
       pipeline.push({ $match: { eventAt: { $gte: day.start, $lte: day.end } } });
       console.log(`[Query] ${user_id} @ ${date} -> Range: ${day.start.toISOString()} to ${day.end.toISOString()}`);
     }
@@ -1223,13 +1225,16 @@ app.get('/api/reports/employee/:company_id/:user_id/range', async (req, res) => 
   try {
     const { company_id, user_id } = req.params;
     const { start, end } = req.query;
+    const timezoneOffsetMinutes = Number(req.query.tz_offset ?? req.query.timezoneOffset ?? 0);
 
     if (!start || !end) {
       return res.status(400).json({ error: 'Missing start or end date' });
     }
 
-    const startDate = new Date(`${start}T00:00:00.000`);
-    const endDate = new Date(`${end}T23:59:59.999`);
+    const startBounds = buildDayBounds(start, timezoneOffsetMinutes);
+    const endBounds = buildDayBounds(end, timezoneOffsetMinutes);
+    const startDate = startBounds.start;
+    const endDate = endBounds.end;
 
     const reports = await Report.aggregate([
       { $match: { company_id, user_id } },
@@ -1258,6 +1263,7 @@ app.get('/api/reports/employee/:company_id/:user_id/range', async (req, res) => 
 app.get('/api/reports/employee/:company_id/:user_id/stats', async (req, res) => {
   try {
     const { company_id, user_id } = req.params;
+    const timezoneOffsetMinutes = Number(req.query.tz_offset ?? req.query.timezoneOffset ?? 0);
 
     const result = await Report.aggregate([
       { $match: { company_id, user_id } },
@@ -1736,7 +1742,7 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
     const targetDate = date || getLocalDateString();
     const designation = await getUserDesignation(compId, userId);
 
-    const day = buildDayBounds(targetDate);
+    const day = buildDayBounds(targetDate, timezoneOffsetMinutes);
 
     // Check the latest activity for this exact day to avoid serving stale cached summaries.
     const latestDayLog = await Report.aggregate([
