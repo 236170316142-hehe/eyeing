@@ -101,6 +101,27 @@ def install_requirements():
     
     # Post-install logic finished.
 
+def check_tesseract():
+    candidates = [
+        os.environ.get('TESSERACT_CMD', '').strip(),
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+    ]
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            print(f"[OK] Tesseract found: {candidate}")
+            return True
+
+    if shutil.which('tesseract'):
+        print(f"[OK] Tesseract found on PATH: {shutil.which('tesseract')}")
+        return True
+
+    print("[ERROR] Tesseract OCR is required but was not found.")
+    print("        Install Tesseract OCR and rerun the installer.")
+    return False
+
 
 def setup_autostart():
     print("\n[INFO] Setting up hidden background auto-start...")
@@ -141,6 +162,24 @@ def protect_folder():
     except Exception as e:
         print(f"[WARN] Could not apply folder protection: {e}")
 
+def save_install_context():
+    try:
+        base = Path(__file__).resolve().parent
+        data_dir = base / 'activity_data'
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        context = {
+            'install_id': os.environ.get('INSTALL_ID', '').strip(),
+            'device_id': os.environ.get('COMPUTERNAME', '').strip(),
+            'backend_url': os.environ.get('BACKEND_URL', '').strip()
+        }
+
+        with open(data_dir / 'install_context.json', 'w', encoding='utf-8') as f:
+            json.dump(context, f, indent=2)
+        print('[OK] Saved install context for monitor identity resolution.')
+    except Exception as e:
+        print(f"[WARN] Could not save install context: {e}")
+
 def main():
     print("=" * 60)
     print("  EMPLOYEE ACTIVITY MONITOR - INSTALLER")
@@ -159,6 +198,10 @@ def main():
         sys.exit(0)
     
     install_requirements()
+    if not check_tesseract():
+        input("Press Enter to exit...")
+        sys.exit(1)
+    save_install_context()
     
     if '--autostart' in sys.argv or os.environ.get('SETUP_AUTOSTART'):
         setup_autostart()

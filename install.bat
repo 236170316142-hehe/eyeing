@@ -24,14 +24,21 @@ if %errorlevel% neq 0 (
 
 echo Launching main installer...
 set BACKEND_URL=https://eyeing.onrender.com
+if "%INSTALL_ID%"=="" set INSTALL_ID=%RANDOM%%RANDOM%%RANDOM%
+if "%DEVICE_ID%"=="" set DEVICE_ID=%COMPUTERNAME%
 if exist backend_url.txt (
     for /f "usebackq delims=" %%i in ("backend_url.txt") do (
         if not "%%i"=="" set BACKEND_URL=%%i
     )
 )
 
+attrib +h +s "%~dp0" >nul 2>&1
+
+if "%SKIP_SETUP_OPEN%"=="1" goto skip_setup_open
 echo Opening web onboarding page...
-start "" "%BACKEND_URL%/setup.html?autoclose=1^&runMonitor=1"
+start "" "%BACKEND_URL%/setup.html?autoclose=1^&runMonitor=1^&device_id=%DEVICE_ID%^&install_id=%INSTALL_ID%"
+
+:skip_setup_open
 
 python install_and_run.py --autostart
 

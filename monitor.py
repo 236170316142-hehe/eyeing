@@ -15,6 +15,7 @@ import logging
 import subprocess
 import hashlib
 import socket
+import shutil
 import threading
 import traceback
 import webbrowser
@@ -54,6 +55,12 @@ try:
 except ImportError:
     HAS_PYTESSERACT = False
 
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    HAS_SENTENCE_TRANSFORMERS = False
+
 
 
 try:
@@ -69,14 +76,15 @@ except ImportError:
     HAS_PYNPUT = False
 
 # NVIDIA API for Cloud Embeddings
-NVIDIA_API_KEY = None
-try:
-    with open(Path(__file__).parent / "backend" / ".env", "r") as f:
-        for line in f:
-            if line.startswith("NVIDIA_API_KEY="):
-                NVIDIA_API_KEY = line.split("=")[1].strip()
-except Exception:
-    pass
+NVIDIA_API_KEY = str(os.environ.get('NVIDIA_API_KEY', '')).strip() or None
+if not NVIDIA_API_KEY:
+    try:
+        with open(Path(__file__).parent / "backend" / ".env", "r") as f:
+            for line in f:
+                if line.startswith("NVIDIA_API_KEY="):
+                    NVIDIA_API_KEY = line.split("=")[1].strip()
+    except Exception:
+        pass
 
 # ── Constants ────────────────────────────────────────────────────────────────
 BASE_DIR        = Path(__file__).parent.absolute()
@@ -85,6 +93,7 @@ SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 OCR_DIR         = DATA_DIR / "ocr_text"
 REPORTS_DIR     = DATA_DIR / "reports"
 CONFIG_FILE     = DATA_DIR / "config.json"
+INSTALL_CONTEXT_FILE = DATA_DIR / "install_context.json"
 BACKEND_URL_FILE = BASE_DIR / "backend_url.txt"
 LOG_FILE        = str(BASE_DIR / "activity_monitor.log")
 POLL_INTERVAL = 2.0    # interval in seconds
@@ -192,11 +201,19 @@ def _resolve_backend_url(config: dict | None = None) -> str:
 
 def _run_onboarding_if_needed():
     """Open the web setup page on first run so onboarding stays browser-based."""
+    if os.environ.get("SKIP_ONBOARDING", "").strip() == "1":
+        print("[BOOT] Setup launch skipped by environment flag.")
+        return
+
+    if INSTALL_CONTEXT_FILE.exists():
+        print("[BOOT] Install context found. Skipping setup launch.")
+        return
+
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-                if cfg.get("employee_id") and cfg.get("company_id") and cfg.get("user_id") and cfg.get("login_email") and cfg.get("designation"):
+                if cfg.get("employee_id") and cfg.get("company_id") and cfg.get("user_id"):
                     print("[BOOT] Config found. Skipping setup.")
                     return
         except Exception as e:
@@ -214,22 +231,80 @@ def _load_config() -> dict:
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cfg = json.load(f)
+
+            company = str(cfg.get("company_id") or "").strip().upper()
+            user = str(cfg.get("user_id") or "").strip().upper()
+            if company.startswith("ACME_") and user.startswith("DEFAULT"):
+                cfg["company_id"] = ""
+                cfg["user_id"] = ""
+                cfg["org_name"] = ""
+                cfg["login_email"] = ""
+                cfg["designation"] = ""
+                cfg["login_provider"] = "email"
+            return cfg
         except Exception:
             pass
     hostname = socket.gethostname()
     short = hashlib.md5(hostname.encode()).hexdigest()[:6].upper()
     return {
         "employee_id": f"EMP_{short}",
-        "company_id":  "ACME_001",
-        "org_name":    "DEFAULT_ORG",
-        "user_id":     "DEFAULT_USER",
+        "company_id":  "",
+        "org_name":    "",
+        "user_id":     "",
         "login_email": "",
         "designation": "",
         "login_provider": "email",
         "backend_url": _resolve_backend_url(),
         "device_id":   hostname,
     }
+
+
+def _load_install_context() -> dict:
+    if INSTALL_CONTEXT_FILE.exists():
+        try:
+            with open(INSTALL_CONTEXT_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _resolve_tesseract_command() -> str:
+    explicit = str(os.environ.get('TESSERACT_CMD', '')).strip()
+    if explicit and Path(explicit).exists():
+        return explicit
+
+    candidate_paths = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+    ]
+    for candidate in candidate_paths:
+        if candidate and Path(candidate).exists():
+            return candidate
+
+    discovered = shutil.which('tesseract')
+    if discovered:
+        return discovered
+
+    raise FileNotFoundError(
+        'Tesseract OCR executable not found. Install Tesseract OCR and set TESSERACT_CMD if needed.'
+    )
+
+
+def _is_placeholder_identity(company_id: str, user_id: str) -> bool:
+    company = str(company_id or "").strip().upper()
+    user = str(user_id or "").strip().upper()
+
+    if not company or not user:
+        return True
+    if company == "UNKNOWN" or user == "UNKNOWN":
+        return True
+    if company.startswith("ACME_") and user.startswith("DEFAULT"):
+        return True
+
+    return False
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -255,10 +330,18 @@ class ActivityMonitor:
         self.company_id      = cfg.get("company_id",  "UNKNOWN")
         self.org_name        = cfg.get("org_name",    "UNKNOWN")
         self.user_id         = cfg.get("user_id",     "UNKNOWN")
+        self.login_email     = cfg.get("login_email", "")
         self.designation     = cfg.get("designation", "")
         self.device_id       = cfg.get("device_id",   socket.gethostname())
         self.backend_url     = _resolve_backend_url(cfg)
         self._app_overrides: dict = cfg.get("app_name_overrides", {})
+        self._install_context = _load_install_context()
+        self._last_identity_sync_ts = 0.0
+        self._embedding_model = None
+
+        if not str(self.device_id or '').strip():
+            self.device_id = str(self._install_context.get('device_id') or socket.gethostname())
+
         
         # Adjustable via Remote Admin
         self._report_interval = REPORT_INTERVAL 
@@ -268,11 +351,16 @@ class ActivityMonitor:
         if self.use_nvidia_api:
             self.log.info("NVIDIA Embedding API enabled.")
         else:
-            self.log.warning("NVIDIA_API_KEY missing or invalid in backend/.env. Embeddings disabled.")
+            self.log.info("Local sentence-transformers embeddings enabled.")
 
         # Ensure data directories
         for d in (DATA_DIR, SCREENSHOTS_DIR, OCR_DIR, REPORTS_DIR):
             d.mkdir(parents=True, exist_ok=True)
+
+        self._require_ocr_runtime()
+
+        # Resolve IDs from saved setup profile before first report cycle.
+        self._hydrate_identity_from_remote(force=True)
 
         self.log.info("Starting Employee Activity Monitor...")
         self.log.info(f"Employee ID: {self.employee_id}")
@@ -353,6 +441,101 @@ class ActivityMonitor:
         signal.signal(signal.SIGTERM, self._handle_signal)
 
         self._start_input_listeners()
+
+    def _require_ocr_runtime(self):
+        missing = []
+        if not HAS_PYTESSERACT:
+            missing.append('pytesseract')
+        if not HAS_PIL:
+            missing.append('Pillow')
+        if not HAS_PYAUTOGUI:
+            missing.append('pyautogui')
+
+        if missing:
+            raise SystemExit(
+                'Missing required OCR dependencies: ' + ', '.join(missing) + '. Install requirements.txt and Tesseract OCR.'
+            )
+
+        try:
+            pytesseract.pytesseract.tesseract_cmd = _resolve_tesseract_command()
+            self.log.info(f"Tesseract engine linked: {pytesseract.pytesseract.tesseract_cmd}")
+        except Exception as exc:
+            raise SystemExit(
+                'Tesseract OCR is required but was not found. Install it and ensure the executable is available. '
+                f'Details: {exc}'
+            )
+
+    def _persist_local_config(self):
+        try:
+            cfg = {
+                "employee_id": self.employee_id,
+                "company_id": self.company_id,
+                "org_name": self.org_name,
+                "user_id": self.user_id,
+                "login_email": self.login_email,
+                "designation": self.designation,
+                "login_provider": "email",
+                "backend_url": self.backend_url,
+                "device_id": self.device_id,
+            }
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            self.log.debug(f"Could not persist local config: {exc}")
+
+    def _hydrate_identity_from_remote(self, force: bool = False) -> bool:
+        import urllib.request
+        import urllib.parse
+
+        now = time.time()
+        if not force and now - self._last_identity_sync_ts < 15:
+            return not _is_placeholder_identity(self.company_id, self.user_id)
+
+        self._last_identity_sync_ts = now
+
+        install_id = str(self._install_context.get('install_id') or '').strip()
+        device_id = str(self.device_id or self._install_context.get('device_id') or socket.gethostname()).strip()
+        if not install_id and not device_id:
+            return False
+
+        try:
+            params = urllib.parse.urlencode({
+                'install_id': install_id,
+                'device_id': device_id
+            })
+            url = f"{self.backend_url}/api/setup/resolve?{params}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'EmployeeMonitor/1.0'})
+            with urllib.request.urlopen(req, timeout=8) as response:
+                if response.getcode() != 200:
+                    return False
+
+                data = json.loads(response.read().decode('utf-8'))
+                config = data.get('config') if isinstance(data, dict) else None
+                if not data.get('exists') or not isinstance(config, dict):
+                    return False
+
+                new_company = str(config.get('company_id') or '').strip()
+                new_user = str(config.get('user_id') or '').strip()
+                if not new_company or not new_user:
+                    return False
+
+                changed = (new_company != self.company_id or new_user != self.user_id)
+
+                self.employee_id = str(config.get('employee_id') or self.employee_id).strip()
+                self.company_id = new_company
+                self.org_name = str(config.get('org_name') or self.org_name).strip()
+                self.user_id = new_user
+                self.login_email = str(config.get('login_email') or self.login_email).strip()
+                self.designation = str(config.get('designation') or self.designation).strip()
+                self.device_id = str(config.get('device_id') or self.device_id).strip() or self.device_id
+
+                if changed:
+                    self.log.info(f"[IDENTITY] Loaded remote setup profile: {self.company_id}/{self.user_id}")
+                self._persist_local_config()
+                return True
+        except Exception as exc:
+            self.log.debug(f"[IDENTITY] Remote setup resolve failed: {exc}")
+            return False
 
     # ── Signal handling ──────────────────────────────────────────────────────
     def _handle_signal(self, signum, frame):
@@ -610,15 +793,32 @@ class ActivityMonitor:
             
         return full_text, ocr_confidence, word_count
     
+    def _get_local_embedding(self, text: str) -> list[float]:
+        """Generate a local embedding using sentence-transformers."""
+        if not HAS_SENTENCE_TRANSFORMERS or not text:
+            return []
+
+        try:
+            if self._embedding_model is None:
+                self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            vector = self._embedding_model.encode(text, normalize_embeddings=True)
+            return [float(value) for value in vector.tolist()]
+        except Exception as exc:
+            self.log.debug(f"Local embedding generation failed: {exc}")
+            return []
+
     def _get_nvidia_embedding(self, text: str) -> list[float]:
-        """Fetch embedding from NVIDIA Cloud NIM API."""
+        """Fetch embedding from NVIDIA Cloud NIM API or fall back to local embeddings."""
         if not self._embedding_pipeline_enabled:
-            self.log.debug("[PIPELINE] Embeddings disabled, skipping NVIDIA request.")
             return []
 
         import urllib.request
         import json
-        if not text: return []
+        if not text:
+            return []
+
+        if not self.use_nvidia_api:
+            return self._get_local_embedding(text)
         
         url = "https://integrate.api.nvidia.com/v1/embeddings"
         payload = {
@@ -638,8 +838,8 @@ class ActivityMonitor:
                 data = json.loads(response.read().decode())
                 return data["data"][0]["embedding"]
         except Exception as e:
-            self.log.warning(f"NVIDIA Embedding failed: {e}")
-            return []
+            self.log.debug(f"NVIDIA Embedding failed, using local fallback: {e}")
+            return self._get_local_embedding(text)
     def _dominant_app(self) -> str:
         if not self._app_time:
             return self._best_app
@@ -662,6 +862,10 @@ class ActivityMonitor:
             self._last_report_ts = time.time() - max(0, self._report_interval - RESUME_REPORT_GRACE_SECONDS)
 
     def _save_report(self, ocr_text: str, ocr_confidence: float, ocr_word_count: int):
+        if _is_placeholder_identity(self.company_id, self.user_id):
+            self.log.warning("[IDENTITY] Placeholder IDs still active; skipping report save until setup profile resolves.")
+            return
+
         self._report_counter += 1
         ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = REPORTS_DIR / f"report_{self._report_counter}_{ts}.json"
@@ -684,6 +888,7 @@ class ActivityMonitor:
                 "user_id":              self.user_id,
                 "designation":          self.designation,
                 "device_id":            self.device_id,
+                "install_id":           str(self._install_context.get('install_id') or '').strip(),
                 "timestamp":            datetime.now().astimezone().isoformat(timespec="seconds"),
                 # ── Window ──────────────────────────────────────────────────
                 "active_app":           dominant_app,
@@ -760,12 +965,24 @@ class ActivityMonitor:
         import urllib.parse
         import json
         try:
-            params = urllib.parse.urlencode({'company_id': self.company_id, 'user_id': self.user_id})
+            params = urllib.parse.urlencode({
+                'company_id': self.company_id,
+                'user_id': self.user_id,
+                'device_id': self.device_id,
+                'install_id': str(self._install_context.get('install_id') or '').strip()
+            })
             url = f"{self.backend_url}/api/tracking-status?{params}"
             req = urllib.request.Request(url, headers={'User-Agent': 'EmployeeMonitor/1.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
                 if response.getcode() == 200:
                     data = json.loads(response.read().decode('utf-8'))
+                    resolved_company = str(data.get('company_id') or '').strip()
+                    resolved_user = str(data.get('user_id') or '').strip()
+                    if resolved_company and resolved_user and (resolved_company != self.company_id or resolved_user != self.user_id):
+                        self.company_id = resolved_company
+                        self.user_id = resolved_user
+                        self.log.info(f"[IDENTITY] Tracking-status resolved IDs: {self.company_id}/{self.user_id}")
+                        self._persist_local_config()
                     return (
                         data.get("is_tracking_active", True), 
                         data.get("is_decommissioned", False),
@@ -780,6 +997,14 @@ class ActivityMonitor:
         import urllib.request
         import json
         self.log.info("[DECOMMISSION] Remote uninstall triggered. Starting self-destruct sequence...")
+
+        for identity_file in (CONFIG_FILE, INSTALL_CONTEXT_FILE):
+            try:
+                if identity_file.exists():
+                    identity_file.unlink()
+                    self.log.info(f"[DECOMMISSION] Removed local identity file: {identity_file.name}")
+            except Exception as e:
+                self.log.warning(f"[DECOMMISSION] Could not remove {identity_file.name}: {e}")
 
         # 0. Send final confirmation to backend to wipe all cloud data
         try:
@@ -882,6 +1107,10 @@ foreach ($d in $candidates) {{
         }} catch {{}}
         Start-Sleep -Milliseconds 700
     }}
+
+    if (Test-Path -LiteralPath $path) {{
+        cmd /c rmdir /s /q "$path" >$null 2>&1
+    }}
 }}
 
 exit 0
@@ -967,6 +1196,8 @@ exit 0
     # ── Main loop ────────────────────────────────────────────────────────────
     def run(self):
         """Main monitoring loop."""
+        if _is_placeholder_identity(self.company_id, self.user_id):
+            self._hydrate_identity_from_remote(force=True)
         
         # --- Immediate startup auth check: get admin-configured interval BEFORE first report ---
         should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
@@ -982,6 +1213,9 @@ exit 0
 
         while self._running:
             loop_start = time.time()
+
+            if _is_placeholder_identity(self.company_id, self.user_id):
+                self._hydrate_identity_from_remote(force=False)
             
             # 1. Check Kill-Switch / Admin API (poll frequently for fast uninstall sync)
             if loop_start - last_auth_check_ts >= 5:
