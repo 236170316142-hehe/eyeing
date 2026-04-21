@@ -467,6 +467,7 @@
     <div style="overflow: hidden; display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px;">
       <a href="/employee-distribution.html" target="_blank" class="refresh-btn" style="float:none; margin-bottom: 0; text-decoration:none; display:inline-flex; align-items:center;">📦 Employee Package</a>
       <button class="refresh-btn" onclick="loadTrackers()" style="float:none; margin-bottom: 0;">↻ Refresh List</button>
+      <button class="refresh-btn" onclick="recoverAllStuckTrackers()" style="float:none; margin-bottom: 0;">🩹 Recover Stuck</button>
     </div>
 
     <div class="table-container">
@@ -1793,6 +1794,25 @@
         await loadTrackers();
       } catch {
         showToast(hardDelete ? 'Failed to wipe tracker.' : 'Failed to decommission.');
+      }
+    }
+
+    async function recoverAllStuckTrackers() {
+      if (!confirm('Recover all trackers currently stuck in UNINSTALLING state?')) return;
+
+      try {
+        const response = await fetch('/api/admin/recover-trackers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recover_all: true })
+        });
+
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        showToast(`Recovered ${data.modified || 0} tracker(s).`);
+        await loadTrackers();
+      } catch (_error) {
+        showToast('Failed to recover stuck trackers.');
       }
     }
 
