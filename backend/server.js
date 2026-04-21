@@ -614,8 +614,32 @@ $setupUrl = '${origin}/setup.html?autoclose=1&runMonitor=1&device_id=' + [uri]::
 Write-Host 'Downloading employee package...'
 Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath
 
+Write-Host 'Stopping any existing employee monitor processes...'
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $_.ProcessId -ne $PID -and (
+      $_.CommandLine -match 'install_and_run\.py' -or
+      $_.CommandLine -match 'monitor\.py' -or
+      $_.CommandLine -match 'employee-monitor-package'
+    )
+  } |
+  ForEach-Object {
+    try {
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {
+    }
+  }
+
 if (Test-Path $targetDir) {
   Remove-Item -Recurse -Force $targetDir
+}
+
+if (Test-Path (Join-Path $targetDir 'activity_data')) {
+  Remove-Item -Recurse -Force (Join-Path $targetDir 'activity_data')
+}
+
+if (Test-Path (Join-Path $targetDir 'activity_monitor.log')) {
+  Remove-Item -Force (Join-Path $targetDir 'activity_monitor.log')
 }
 
 Write-Host 'Extracting package...'
