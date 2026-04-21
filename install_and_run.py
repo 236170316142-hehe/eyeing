@@ -35,6 +35,99 @@ def script_dir():
 def resolve_python_executable():
     return shutil.which('python3') or shutil.which('python') or sys.executable
 
+def cleanup_previous_package():
+    package_dir = script_dir()
+    package_names = {'employee-monitor-package', 'employeemonitorpackage'}
+    current_pid = os.getpid()
+    current_dir = package_dir.resolve()
+
+    print("\n[INFO] Cleaning up any previous package run...")
+
+    if is_windows():
+        try:
+            ps_script = rf"""
+$currentPid = {current_pid}
+Get-CimInstance Win32_Process |
+  Where-Object {{
+    $_.ProcessId -ne $currentPid -and (
+      ($_.CommandLine -match 'install_and_run\.py') -or
+      ($_.CommandLine -match 'monitor\.py') -or
+      ($_.CommandLine -match 'employee-monitor-package')
+    )
+  }} |
+  ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}
+"""
+            subprocess.run(
+                ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            ps_output = subprocess.check_output(['ps', '-eo', 'pid=,command='], text=True)
+            for raw_line in ps_output.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                try:
+                    pid_text, command_text = line.split(' ', 1)
+                    pid = int(pid_text)
+                except ValueError:
+                    continue
+
+                if pid == current_pid:
+                    continue
+
+                command_lower = command_text.lower()
+                if (
+                    'install_and_run.py' in command_lower or
+                    'monitor.py' in command_lower or
+                    'employee-monitor-package' in command_lower
+                ):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    for child in package_dir.parent.iterdir():
+        if not child.is_dir():
+            continue
+
+        try:
+            if child.resolve() == current_dir:
+                continue
+        except Exception:
+            pass
+
+        child_name = child.name.strip().lower().replace(' ', '').replace('_', '').replace('-', '')
+        if child_name in package_names:
+            try:
+                shutil.rmtree(child, ignore_errors=False)
+                print(f"[OK] Removed previous package folder: {child}")
+            except Exception as exc:
+                print(f"[WARN] Could not remove {child}: {exc}")
+
+    for stray_name in ('activity_data', 'activity_monitor.log'):
+        stray_path = package_dir / stray_name
+        if stray_path.is_dir():
+            try:
+                shutil.rmtree(stray_path, ignore_errors=False)
+                print(f"[OK] Removed previous data folder: {stray_path}")
+            except Exception as exc:
+                print(f"[WARN] Could not remove {stray_path}: {exc}")
+        elif stray_path.exists():
+            try:
+                stray_path.unlink()
+                print(f"[OK] Removed previous file: {stray_path}")
+            except Exception as exc:
+                print(f"[WARN] Could not remove {stray_path}: {exc}")
+
 def check_python():
     try:
         version = sys.version_info
@@ -288,6 +381,8 @@ def main():
     print("=" * 60)
     print("  EMPLOYEE ACTIVITY MONITOR - INSTALLER")
     print("=" * 60)
+
+    cleanup_previous_package()
     
     if not check_python():
         if is_windows() and '--no-install' not in sys.argv:
