@@ -1100,9 +1100,9 @@
         }, { score: Infinity, bucket: null }).bucket;
 
       const topApp = appUsage[0];
-      const trendHours = hourly.activeBuckets.map(bucket => bucket.label);
-      const trendProductivity = hourly.activeBuckets.map(bucket => Math.min(100, Math.round((bucket.keyboard_key_presses * 1.35) + (bucket.mouse_clicks * 1.1) + (bucket.time_active_sec / 60) * 1.2)));
-      const trendActivity = hourly.activeBuckets.map(bucket => Math.min(100, Math.round((bucket.time_active_sec / 60) * 8)));
+      const trendHours = hourly.buckets.map(bucket => bucket.label);
+      const trendProductivity = hourly.buckets.map(bucket => Math.min(100, Math.round((bucket.keyboard_key_presses * 1.35) + (bucket.mouse_clicks * 1.1) + (bucket.time_active_sec / 60) * 1.2)));
+      const trendActivity = hourly.buckets.map(bucket => Math.min(100, Math.round((bucket.time_active_sec / 60) * 8)));
 
       const typingTotal = hourly.activeBuckets.reduce((sum, bucket) => sum + bucket.keyboard_key_presses, 0);
       const mouseTotal = hourly.activeBuckets.reduce((sum, bucket) => sum + bucket.mouse_clicks, 0);
@@ -1336,7 +1336,8 @@
       renderTrendChart(metrics);
       renderWorkTypeChart(metrics);
       renderAppUsageChart(metrics.appUsage);
-      renderWeeklyHeatmap(weeklyReports || []);
+      const heatmapReports = Array.isArray(weeklyReports) && weeklyReports.length ? weeklyReports : dailyReports;
+      renderWeeklyHeatmap(heatmapReports);
     }
 
     async function loadWeeklyReports() {
@@ -1613,6 +1614,7 @@
       const analyzed = document.getElementById('insAnalyzed');
       const cachedBadge = document.getElementById('insCached');
       const date = document.getElementById('modalDate').value;
+      const tzOffset = new Date().getTimezoneOffset();
       const contextKey = `${_currentModalCompId}:${_currentModalUserId}:${date}`;
       const shouldRegen = regen || _lastSummaryContextKey !== contextKey;
 
@@ -1624,7 +1626,7 @@
 
       try {
         const [summaryResponse, weeklyReports] = await Promise.all([
-          fetch(`/api/admin/summary/${_currentModalCompId}/${_currentModalUserId}?date=${date}&regen=${shouldRegen}`),
+          fetch(`/api/admin/summary/${_currentModalCompId}/${_currentModalUserId}?date=${date}&regen=${shouldRegen}&tz_offset=${encodeURIComponent(tzOffset)}`),
           loadWeeklyReports().catch(() => [])
         ]);
         const data = await summaryResponse.json();
