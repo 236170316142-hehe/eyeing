@@ -1343,6 +1343,7 @@
     async function loadWeeklyReports() {
       const date = document.getElementById('modalDate')?.value;
       if (!date || !_currentModalCompId || !_currentModalUserId) return [];
+      const tzOffset = new Date().getTimezoneOffset();
 
       const range = getWeekRange(date);
       const cacheKey = `${_currentModalCompId}:${_currentModalUserId}:${range.start.toISOString().slice(0, 10)}:${range.end.toISOString().slice(0, 10)}`;
@@ -1352,7 +1353,7 @@
 
       const start = range.start.toISOString().slice(0, 10);
       const end = range.end.toISOString().slice(0, 10);
-      const response = await fetch(`/api/reports/employee/${encodeURIComponent(_currentModalCompId)}/${encodeURIComponent(_currentModalUserId)}/range?start=${start}&end=${end}`);
+      const response = await fetch(`/api/reports/employee/${encodeURIComponent(_currentModalCompId)}/${encodeURIComponent(_currentModalUserId)}/range?start=${start}&end=${end}&tz_offset=${encodeURIComponent(tzOffset)}`);
       const reports = await response.json();
       window._weeklyReports = Array.isArray(reports) ? reports : [];
       window._weeklyRangeKey = cacheKey;
@@ -1651,9 +1652,10 @@
       const reportList = document.getElementById('reportList');
       const stats = document.getElementById('modalStats');
       const date = document.getElementById('modalDate').value;
+      const tzOffset = new Date().getTimezoneOffset();
 
       try {
-        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${date}`);
+        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${date}&tz_offset=${encodeURIComponent(tzOffset)}`);
         if (!response.ok) {
           throw new Error('Failed to fetch reports');
         }
@@ -1666,7 +1668,7 @@
         if (!reports || reports.length === 0) {
           let diagnosticHtml = '';
           try {
-            const statsResp = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}/stats`);
+            const statsResp = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}/stats?tz_offset=${encodeURIComponent(tzOffset)}`);
             if (statsResp.ok) {
               const statsData = await statsResp.json();
               const totalReports = Number(statsData?.total_reports || 0);
