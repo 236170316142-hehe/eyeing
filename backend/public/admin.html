@@ -179,6 +179,34 @@
     .btn-decommission { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
     .btn-decommission:hover { background: rgba(239, 68, 68, 0.25); }
 
+    .health-stack {
+      display: grid;
+      gap: 4px;
+      min-width: 180px;
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .health-pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      border: 1px solid transparent;
+    }
+
+    .health-ok {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.16);
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+
+    .health-warn {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.14);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
     /* Modal Styles */
     .modal-overlay {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -480,12 +508,13 @@
             <th>Status</th>
             <th>Freq (s)</th>
             <th>Monitor</th>
+            <th>Health</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="trackerTableBody">
           <tr>
-            <td colspan="7" style="text-align: center; color: var(--text-muted);">Loading trackers...</td>
+            <td colspan="8" style="text-align: center; color: var(--text-muted);">Loading trackers...</td>
           </tr>
         </tbody>
       </table>
@@ -1333,9 +1362,47 @@
       loadTrackers();
     });
 
+    const _trackerHealthIndex = new Map();
+
+    function formatHealthTime(value) {
+      if (!value) return 'Never';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return 'Never';
+      return dt.toLocaleString();
+    }
+
+    function buildHealthCellHtml(tracker) {
+      const reportAt = formatHealthTime(tracker.last_report_received_at);
+      const heartbeatAt = formatHealthTime(tracker.last_monitor_heartbeat_at || tracker.last_seen_at);
+      const queued = Number(tracker.queued_local_report_count || 0);
+      const identityResolved = Boolean(tracker.identity_resolved);
+      const identityClass = identityResolved ? 'health-ok' : 'health-warn';
+      const identityText = identityResolved ? 'Resolved' : 'Pending';
+
+      return `
+        <div class="health-stack">
+          <div>Last report: <span style="color: #cbd5e1;">${reportAt}</span></div>
+          <div>Identity: <span class="health-pill ${identityClass}">${identityText}</span></div>
+          <div>Queued local: <span style="color: ${queued > 0 ? '#fbbf24' : '#cbd5e1'}; font-weight: 700;">${queued}</span></div>
+          <div>Heartbeat: <span style="color: #cbd5e1;">${heartbeatAt}</span></div>
+        </div>
+      `;
+    }
+
+    function getTrackerHealthInline(compId, userId) {
+      const key = `${compId}::${userId}`;
+      const tracker = _trackerHealthIndex.get(key);
+      if (!tracker) return '';
+
+      const reportAt = formatHealthTime(tracker.last_report_received_at);
+      const queued = Number(tracker.queued_local_report_count || 0);
+      const identityText = tracker.identity_resolved ? 'resolved' : 'pending';
+      return `Pipeline health: last report ${reportAt} · identity ${identityText} · queued local ${queued}`;
+    }
+
     async function loadTrackers() {
       const tbody = document.getElementById('trackerTableBody');
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">Loading trackers...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #94a3b8;">Loading trackers...</td></tr>';
       
       try {
         const controller = new AbortController();
@@ -1345,15 +1412,17 @@
         if (!response.ok) throw new Error("API Error");
         
         const trackers = await response.json();
+        _trackerHealthIndex.clear();
         
         if (trackers.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No trackers registered yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #94a3b8;">No trackers registered yet.</td></tr>';
           return;
         }
 
         tbody.innerHTML = '';
         
         trackers.forEach(t => {
+          _trackerHealthIndex.set(`${t.company_id}::${t.user_id}`, t);
           const tr = document.createElement('tr');
           const isEnabled = t.is_tracking_active;
           const isDecom = t.is_decommissioned;
@@ -1381,6 +1450,7 @@
                 <span class="slider" style="${isDecom ? 'background-color: #475569;' : ''}"></span>
               </label>
             </td>
+            <td>${buildHealthCellHtml(t)}</td>
             <td>
               <div style="display: flex; gap: 8px;">
                  <button onclick="openReportFromRow('${encodeURIComponent(t.company_id || '')}', '${encodeURIComponent(t.user_id || '')}', '${encodeURIComponent(t.designation || '')}')" class="btn-action btn-view">
@@ -1398,7 +1468,7 @@
           tbody.appendChild(tr);
         });
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #ef4444;">Failed to load data.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #ef4444;">Failed to load data.</td></tr>';
         console.error(e);
       }
     }
@@ -1625,7 +1695,8 @@
             : '';
 
           reportList.innerHTML = `<div style="text-align:center; padding: 24px; color: #94a3b8">No records found for this date.</div>${diagnosticHtml}${suggestionHtml}`;
-          stats.textContent = `Showing 0 reports · Refreshed at ${new Date().toLocaleTimeString()}`;
+          const healthInlineEmpty = getTrackerHealthInline(compId, userId);
+          stats.textContent = `Showing 0 reports · Refreshed at ${new Date().toLocaleTimeString()}${healthInlineEmpty ? ` · ${healthInlineEmpty}` : ''}`;
           window.currentReports = [];
           window._currentReportsDate = date;
           renderPerformanceChart([]);
@@ -1647,7 +1718,8 @@
 
         // Show last-refreshed time
         const now = new Date().toLocaleTimeString();
-        stats.textContent = `Showing ${reports.length} total reports · Refreshed at ${now}`;
+        const healthInline = getTrackerHealthInline(compId, userId);
+        stats.textContent = `Showing ${reports.length} total reports · Refreshed at ${now}${healthInline ? ` · ${healthInline}` : ''}`;
 
       } catch (err) {
         reportList.innerHTML = '<div style="text-align:center; padding: 40px; color: #ef4444">Error loading reports.</div>';
