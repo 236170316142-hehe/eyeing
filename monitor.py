@@ -275,11 +275,20 @@ def _resolve_tesseract_command() -> str:
     if explicit and Path(explicit).exists():
         return explicit
 
-    candidate_paths = [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
-    ]
+    candidate_paths = []
+    if os.name == 'nt':
+        candidate_paths.extend([
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+        ])
+    else:
+        candidate_paths.extend([
+            '/opt/homebrew/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/usr/bin/tesseract',
+        ])
+
     for candidate in candidate_paths:
         if candidate and Path(candidate).exists():
             return candidate
@@ -291,6 +300,16 @@ def _resolve_tesseract_command() -> str:
     raise FileNotFoundError(
         'Tesseract OCR executable not found. Install Tesseract OCR and set TESSERACT_CMD if needed.'
     )
+
+
+def _has_gui_screenshot_session() -> bool:
+    if os.name == 'nt':
+        return True
+
+    if sys.platform == 'darwin':
+        return True
+
+    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
 
 
 def _is_placeholder_identity(company_id: str, user_id: str) -> bool:
@@ -339,6 +358,16 @@ class ActivityMonitor:
         self._last_identity_sync_ts = 0.0
         self._embedding_model = None
 
+        # Runtime state needs to exist before OCR validation can decide whether
+        # to disable capture on headless or unsupported desktop sessions.
+        self._running        = True
+        self._report_counter = 0
+        self._last_report_ts = time.time()
+        self._tracking_paused = False
+        self._capture_pipeline_enabled = True
+        self._ocr_pipeline_enabled = True
+        self._embedding_pipeline_enabled = True
+
         if not str(self.device_id or '').strip():
             self.device_id = str(self._install_context.get('device_id') or socket.gethostname())
 
@@ -368,35 +397,6 @@ class ActivityMonitor:
         self.log.info(f"Backend URL: {self.backend_url}")
         self.log.info(f"Reports will be saved to: {DATA_DIR}")
         self.log.info(f"Logging interval: {REPORT_INTERVAL} seconds")
-
-        # Runtime state
-        self._running        = True
-        self._report_counter = 0
-        self._last_report_ts = time.time()
-        self._tracking_paused = False
-        self._capture_pipeline_enabled = True
-        self._ocr_pipeline_enabled = True
-        self._embedding_pipeline_enabled = True
-        
-        # Load Tesseract if available
-        if HAS_PYTESSERACT:
-            p = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-            if os.path.exists(p):
-                pytesseract.pytesseract.tesseract_cmd = p
-                self.log.info(f"Tesseract engine linked: {p}")
-            else:
-                self.log.warning(f"Tesseract NOT found at {p}. Trying fallback search...")
-                tess_paths = [
-                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Tesseract-OCR", "tesseract.exe"),
-                ]
-                for p_auto in tess_paths:
-                    if os.path.exists(p_auto):
-                        pytesseract.pytesseract.tesseract_cmd = p_auto
-                        self.log.info(f"Tesseract found: {p_auto}")
-                        break
-                else:
-                    self.log.error("Tesseract engine NOT found. OCR will be disabled.")
 
         # App-time tracking: app_name → seconds active this interval
         self._app_time: dict[str, float] = defaultdict(float)
@@ -448,13 +448,21 @@ class ActivityMonitor:
             missing.append('pytesseract')
         if not HAS_PIL:
             missing.append('Pillow')
-        if not HAS_PYAUTOGUI:
+        if not HAS_PYAUTOGUI or not _has_gui_screenshot_session():
             missing.append('pyautogui')
 
         if missing:
-            raise SystemExit(
-                'Missing required OCR dependencies: ' + ', '.join(missing) + '. Install requirements.txt and Tesseract OCR.'
-            )
+            if 'pyautogui' in missing and len(missing) == 1:
+                self._capture_pipeline_enabled = False
+                self._ocr_pipeline_enabled = False
+                self.log.warning(
+                    'Screenshot capture is unavailable in this session, so OCR capture has been disabled. '
+                    'Tracking will continue without screenshots.'
+                )
+            else:
+                raise SystemExit(
+                    'Missing required OCR dependencies: ' + ', '.join(missing) + '. Install requirements.txt and Tesseract OCR.'
+                )
 
         try:
             pytesseract.pytesseract.tesseract_cmd = _resolve_tesseract_command()
@@ -738,6 +746,12 @@ class ActivityMonitor:
         """Captures screen and extracts text using Tesseract with Preprocessing."""
         if not self._capture_pipeline_enabled:
             self.log.debug("[PIPELINE] Capture disabled, skipping screenshot/OCR.")
+            return "", 0.0, 0
+
+        if not HAS_PYAUTOGUI or not _has_gui_screenshot_session():
+            self.log.warning("Screenshot capture is unavailable in this session. Disabling capture pipeline.")
+            self._capture_pipeline_enabled = False
+            self._ocr_pipeline_enabled = False
             return "", 0.0, 0
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
