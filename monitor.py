@@ -1010,6 +1010,7 @@ class ActivityMonitor:
         """Permanently remove all traces of the monitor from this PC."""
         import urllib.request
         import json
+        import shlex
         self.log.info("[DECOMMISSION] Remote uninstall triggered. Starting self-destruct sequence...")
 
         for identity_file in (CONFIG_FILE, INSTALL_CONTEXT_FILE):
@@ -1032,114 +1033,92 @@ class ActivityMonitor:
                     self.log.info("[DECOMMISSION] Cloud data wipe confirmed.")
         except Exception as e:
             self.log.warning(f"[DECOMMISSION] Could not notify backend of deletion: {e}")
-        
-        # 1. Remove Windows Startup entries
+
+        folder_path = os.path.abspath(os.path.dirname(__file__) or '.')
         try:
-            startup_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-            startup_entries = [
-                os.path.join(startup_folder, 'EmployeeMonitor.vbs'),
-                os.path.join(startup_folder, 'EmployeeMonitor.lnk')
-            ]
-            for entry in startup_entries:
-                if os.path.exists(entry):
-                    os.remove(entry)
-                    self.log.info(f"[DECOMMISSION] Startup entry removed: {os.path.basename(entry)}")
+            # Remove local startup/config markers immediately.
+            if os.name == 'nt':
+                startup_folder = os.path.join(os.environ.get('APPDATA', ''), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+                for entry in (
+                    os.path.join(startup_folder, 'EmployeeMonitor.vbs'),
+                    os.path.join(startup_folder, 'EmployeeMonitor.lnk')
+                ):
+                    if os.path.exists(entry):
+                        os.remove(entry)
+                        self.log.info(f"[DECOMMISSION] Startup entry removed: {os.path.basename(entry)}")
+            else:
+                launch_agents = Path.home() / 'Library' / 'LaunchAgents'
+                for entry in (
+                    launch_agents / 'com.eyeing.monitor.plist',
+                    Path.home() / '.config' / 'autostart' / 'employee-monitor.desktop'
+                ):
+                    if entry.exists():
+                        entry.unlink()
+                        self.log.info(f"[DECOMMISSION] Startup entry removed: {entry.name}")
         except Exception as e:
             self.log.warning(f"[DECOMMISSION] Could not remove startup entry: {e}")
 
-        # 2. Remove folder protection so deletion works
-        folder_path = os.path.abspath(os.path.dirname(__file__) or '.')
+        # Best-effort permission cleanup so the folder can be removed.
         try:
-            username = os.environ.get('USERNAME', '')
-            subprocess.run(['icacls', folder_path, '/remove:d', username], capture_output=True)
-            subprocess.run(['attrib', '-h', '-s', folder_path], capture_output=True)
+            if os.name == 'nt':
+                username = os.environ.get('USERNAME', '')
+                subprocess.run(['icacls', folder_path, '/grant:r', f'{username}:F'], capture_output=True)
+                subprocess.run(['attrib', '-h', '-s', folder_path], capture_output=True)
         except Exception:
             pass
 
-        # 3. Self-delete: run detached PowerShell cleanup with broader folder sweep.
-        # This mirrors the manual cleanup flow and handles stale generated folders.
-        target_ps = folder_path.replace("'", "''")
-        script_ps = os.path.abspath(__file__).replace("'", "''")
-        cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
+        cleanup_script = None
+        if os.name == 'nt':
+            folder_ps = folder_path.replace("'", "''")
+            cleanup_script = f'''$ErrorActionPreference = 'SilentlyContinue'
+$targetDir = '{folder_ps}'
 
-$targetDir = '{target_ps}'
-$monitorScript = '{script_ps}'
+Start-Sleep -Seconds 2
 
-Write-Host "1) Stopping monitor-related processes..."
 Get-CimInstance Win32_Process |
     Where-Object {{
-        $_.CommandLine -and (
+        $_.ProcessId -ne $PID -and $_.CommandLine -and (
             $_.CommandLine -match 'monitor\\.py' -or
             $_.CommandLine -match 'install_and_run\\.py' -or
             $_.CommandLine -match 'EmployeeMonitor\\.vbs' -or
-            $_.CommandLine -match 'pythonw\\.exe' -or
-            $_.CommandLine -like "*$monitorScript*"
+            $_.CommandLine -match 'employee-monitor-package'
         )
     }} |
     ForEach-Object {{
         try {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }} catch {{}}
     }}
 
-Write-Host "2) Removing startup persistence..."
-$startup = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'
-Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.vbs') -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $startup 'EmployeeMonitor.lnk') -Force -ErrorAction SilentlyContinue
-
-Write-Host "3) Locating candidate install folders..."
-$roots = @("$env:USERPROFILE\\Desktop", "$env:USERPROFILE\\Downloads", "$env:TEMP", "C:\\Users\\Public")
-$candidates = @()
-
-foreach ($r in $roots) {{
-    if (Test-Path $r) {{
-        $candidates += Get-ChildItem -Path $r -Directory -Recurse -ErrorAction SilentlyContinue |
-            Where-Object {{
-                (Test-Path (Join-Path $_.FullName 'monitor.py')) -and
-                (Test-Path (Join-Path $_.FullName 'install.bat'))
-            }}
+for ($i = 0; $i -lt 40; $i++) {{
+    if (Test-Path -LiteralPath $targetDir) {{
+        try {{ Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction Stop }} catch {{}}
     }}
+    if (-not (Test-Path -LiteralPath $targetDir)) {{ break }}
+    Start-Sleep -Milliseconds 500
 }}
-
-if (Test-Path -LiteralPath $targetDir) {{
-    $candidates += Get-Item -LiteralPath $targetDir -ErrorAction SilentlyContinue
-}}
-
-$candidates = $candidates | Sort-Object FullName -Unique
-
-Write-Host "4) Removing ACL locks + hidden attrs + deleting folders..."
-foreach ($d in $candidates) {{
-    $path = $d.FullName
-    attrib -h -s "$path" /s /d >$null 2>&1
-    icacls "$path" /reset /t /c >$null 2>&1
-    icacls "$path" /remove:d "$env:USERNAME" /t /c >$null 2>&1
-
-    for ($i = 0; $i -lt 40; $i++) {{
-        try {{
-            if (Test-Path -LiteralPath $path) {{
-                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
-            }}
-            if (-not (Test-Path -LiteralPath $path)) {{ break }}
-        }} catch {{}}
-        Start-Sleep -Milliseconds 700
-    }}
-
-    if (Test-Path -LiteralPath $path) {{
-        cmd /c rmdir /s /q "$path" >$null 2>&1
-    }}
-}}
-
-exit 0
 '''
-        ps1_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), f'_em_cleanup_{int(time.time())}.ps1')
-        try:
+            ps1_path = os.path.join(os.environ.get('TEMP', r'C:\Temp'), f'_em_cleanup_{int(time.time())}.ps1')
             with open(ps1_path, 'w', encoding='utf-8') as f:
                 f.write(cleanup_script)
             subprocess.Popen(
                 ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1_path],
-                creationflags=0x08000000
+                creationflags=0x08000000,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
-            self.log.info("[DECOMMISSION] Self-destruct scheduled. Exiting now.")
-        except Exception as e:
-            self.log.error(f"[DECOMMISSION] Could not schedule deletion: {e}")
+        else:
+            import shlex
+            cleanup_script = f'''sleep 2
+pkill -f 'monitor.py' || true
+pkill -f 'install_and_run.py' || true
+rm -rf {shlex.quote(folder_path)}
+'''
+            sh_path = os.path.join(tempfile.gettempdir(), f'_em_cleanup_{int(time.time())}.sh')
+            with open(sh_path, 'w', encoding='utf-8') as f:
+                f.write(cleanup_script)
+            os.chmod(sh_path, 0o755)
+            subprocess.Popen(['sh', sh_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+        self.log.info("[DECOMMISSION] Self-destruct scheduled. Exiting now.")
         
         # 4. Stop the monitor immediately
         self._running = False

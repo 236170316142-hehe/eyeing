@@ -14,6 +14,7 @@ import shutil
 import json
 import platform
 import socket
+import signal
 from pathlib import Path
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
