@@ -1056,6 +1056,12 @@ class ActivityMonitor:
                     if os.path.exists(entry):
                         os.remove(entry)
                         self.log.info(f"[DECOMMISSION] Startup entry removed: {os.path.basename(entry)}")
+
+                try:
+                    subprocess.run(['schtasks', '/Delete', '/TN', 'EmployeeMonitorAutoStart', '/F'], capture_output=True)
+                    self.log.info('[DECOMMISSION] Scheduled task removed: EmployeeMonitorAutoStart')
+                except Exception as task_exc:
+                    self.log.warning(f"[DECOMMISSION] Could not remove scheduled task: {task_exc}")
             else:
                 launch_agents = Path.home() / 'Library' / 'LaunchAgents'
                 for entry in (

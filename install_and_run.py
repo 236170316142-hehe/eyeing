@@ -36,6 +36,17 @@ def script_dir():
 def resolve_python_executable():
     return shutil.which('python3') or shutil.which('python') or sys.executable
 
+
+def resolve_monitor_python_executable(prefer_windowless=False):
+    python_exec = Path(resolve_python_executable()).resolve()
+
+    if is_windows() and prefer_windowless:
+        pythonw_exec = python_exec.with_name('pythonw.exe')
+        if pythonw_exec.exists():
+            return str(pythonw_exec)
+
+    return str(python_exec)
+
 def cleanup_previous_package():
     package_dir = script_dir()
     package_names = {'employee-monitor-package', 'employeemonitorpackage'}
@@ -211,11 +222,23 @@ def install_requirements():
             packages.append(line)
 
         if packages:
-            subprocess.check_call(
-                [sys.executable, '-m', 'pip', 'install', '-q', *packages],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            base_cmd = [sys.executable, '-m', 'pip', 'install', '-q', *packages]
+            try:
+                subprocess.check_call(
+                    base_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                if is_linux():
+                    retry_cmd = [sys.executable, '-m', 'pip', 'install', '--break-system-packages', '-q', *packages]
+                    subprocess.check_call(
+                        retry_cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                else:
+                    raise
         print("[OK] Packages installed successfully.")
     except Exception as e:
         print(f"[FAIL] {e}")
@@ -310,7 +333,7 @@ def setup_autostart():
     print("\n[INFO] Setting up hidden background auto-start...")
 
     monitor_path = script_dir() / 'monitor.py'
-    python_bin = resolve_python_executable()
+    python_bin = resolve_monitor_python_executable(prefer_windowless=False)
 
     if is_windows():
         startup_folder = os.path.join(os.environ.get('APPDATA', str(Path.home())), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
@@ -318,7 +341,7 @@ def setup_autostart():
 
         # VBScript executes pythonw (windowless python) fully hidden (0 flag)
         # Using specific environment variable definition solves Unicode logging crashes
-        python_exec = str(Path(sys.executable).resolve())
+        python_exec = resolve_monitor_python_executable(prefer_windowless=True)
         vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
 WshShell.CurrentDirectory = "{monitor_path.parent}"
 Set colSystemEnvVars = WshShell.Environment("Process")
@@ -326,15 +349,38 @@ colSystemEnvVars("PYTHONIOENCODING") = "utf-8"
 WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
 '''
 
+        vbs_ok = False
+        task_ok = False
+
         try:
             Path(vbs_path).parent.mkdir(parents=True, exist_ok=True)
             with open(vbs_path, 'w', encoding='utf-16') as f:
                 f.write(vbs_content)
             print(f"[OK] Background auto-start (VBS method) enabled: {vbs_path}")
-            return True
+            vbs_ok = True
         except Exception as e:
             print(f"[WARN] Could not create startup entry: {e}")
-            return False
+
+        # Add scheduled task fallback because some systems block startup-folder scripts.
+        try:
+            task_name = 'EmployeeMonitorAutoStart'
+            task_cmd = f'"{python_exec}" "{monitor_path}"'
+            result = subprocess.run(
+                ['schtasks', '/Create', '/SC', 'ONLOGON', '/TN', task_name, '/TR', task_cmd, '/F'],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if result.returncode == 0:
+                print(f"[OK] Background auto-start (Task Scheduler) enabled: {task_name}")
+                task_ok = True
+            else:
+                err = (result.stderr or result.stdout or '').strip()
+                print(f"[WARN] Could not register scheduled task: {err}")
+        except Exception as e:
+            print(f"[WARN] Scheduled task setup failed: {e}")
+
+        return vbs_ok or task_ok
 
     if is_macos():
         launch_agents = Path.home() / 'Library' / 'LaunchAgents'
@@ -365,20 +411,52 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
         return True
 
     if is_linux():
+        monitor_python = resolve_monitor_python_executable(prefer_windowless=False)
         autostart_dir = Path.home() / '.config' / 'autostart'
         autostart_dir.mkdir(parents=True, exist_ok=True)
         desktop_path = autostart_dir / 'employee-monitor.desktop'
         desktop_content = f'''[Desktop Entry]
 Type=Application
 Name=Employee Monitor
-Exec="{python_bin}" "{monitor_path}"
+Exec="{monitor_python}" "{monitor_path}"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
 '''
         desktop_path.write_text(desktop_content, encoding='utf-8')
-        print(f"[OK] Background auto-start enabled for Linux: {desktop_path}")
-        return True
+
+        service_ok = False
+        try:
+            systemd_user_dir = Path.home() / '.config' / 'systemd' / 'user'
+            systemd_user_dir.mkdir(parents=True, exist_ok=True)
+            service_path = systemd_user_dir / 'employee-monitor.service'
+            service_content = f'''[Unit]
+Description=Employee Activity Monitor
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={monitor_path.parent}
+ExecStart={monitor_python} {monitor_path}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+'''
+            service_path.write_text(service_content, encoding='utf-8')
+
+            if shutil.which('systemctl'):
+                subprocess.run(['systemctl', '--user', 'daemon-reload'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(['systemctl', '--user', 'enable', 'employee-monitor.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(['systemctl', '--user', 'restart', 'employee-monitor.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"[OK] Background auto-start enabled for Linux systemd user service: {service_path}")
+            service_ok = True
+        except Exception as e:
+            print(f"[WARN] Could not configure Linux systemd user service: {e}")
+
+        print(f"[OK] Background auto-start enabled for Linux desktop session: {desktop_path}")
+        return service_ok or True
 
     print("[WARN] Auto-start is not configured for this platform.")
     return False
@@ -482,12 +560,12 @@ def main():
             else:
                 print("[WARN] VBScript not found. Running monitor directly (will attach to terminal)...")
                 try:
-                    subprocess.Popen([sys.executable, 'monitor.py'])
+                    subprocess.Popen([resolve_monitor_python_executable(prefer_windowless=True), 'monitor.py'])
                 except Exception as e:
                     print(e)
         else:
             try:
-                subprocess.Popen([sys.executable, str(script_dir() / 'monitor.py')], cwd=str(script_dir()), start_new_session=True)
+                subprocess.Popen([resolve_monitor_python_executable(prefer_windowless=False), str(script_dir() / 'monitor.py')], cwd=str(script_dir()), start_new_session=True)
                 print("[OK] Monitor has successfully started in the background!")
             except Exception as e:
                 print(f"[ERROR] Could not start monitor: {e}")
