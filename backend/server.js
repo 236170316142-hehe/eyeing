@@ -277,21 +277,36 @@ const EMPLOYEE_PACKAGE_DEFINITIONS = {
     label: 'Windows',
     archiveName: 'employee-monitor-windows.zip',
     includeBatchLauncher: true,
-    includeUnixLauncher: false
+    includeUnixLauncher: false,
+    includeWindowsAutomation: true,
+    includeEnterpriseTools: false
   },
   macos: {
     label: 'macOS',
     archiveName: 'employee-monitor-macos.zip',
     includeBatchLauncher: false,
     includeUnixLauncher: true,
-    includeMacCommandLauncher: true
+    includeMacCommandLauncher: true,
+    includeWindowsAutomation: false,
+    includeEnterpriseTools: false
   },
   linux: {
     label: 'Linux',
     archiveName: 'employee-monitor-linux.zip',
     includeBatchLauncher: false,
     includeUnixLauncher: true,
-    includeMacCommandLauncher: false
+    includeMacCommandLauncher: false,
+    includeWindowsAutomation: false,
+    includeEnterpriseTools: false
+  },
+  enterprise: {
+    label: 'Enterprise Multi-OS',
+    archiveName: 'employee-monitor-enterprise.zip',
+    includeBatchLauncher: true,
+    includeUnixLauncher: true,
+    includeMacCommandLauncher: true,
+    includeWindowsAutomation: true,
+    includeEnterpriseTools: true
   }
 };
 
@@ -301,6 +316,7 @@ function normalizeEmployeePackagePlatform(value) {
   if (['win', 'windows', 'win32'].includes(normalized)) return 'windows';
   if (['mac', 'macos', 'darwin', 'osx'].includes(normalized)) return 'macos';
   if (['linux', 'ubuntu', 'debian'].includes(normalized)) return 'linux';
+  if (['enterprise', 'multi-os', 'multios', 'multi_pc', 'multipc'].includes(normalized)) return 'enterprise';
 
   if (EMPLOYEE_PACKAGE_DEFINITIONS[normalized]) return normalized;
 
@@ -313,23 +329,29 @@ function getEmployeePackageDefinition(platform) {
 
 function getBundledTesseractDir(platformKey) {
   const normalizedPlatform = normalizeEmployeePackagePlatform(platformKey);
-  const envKey = `TESSERACT_BUNDLE_${normalizedPlatform.toUpperCase()}`;
 
-  const candidates = [
-    process.env[envKey],
-    path.join(ROOT_DIR, 'bundled', 'tesseract', normalizedPlatform),
-    path.join(ROOT_DIR, 'third_party', 'tesseract', normalizedPlatform),
-  ].filter(Boolean);
+  const platformsToTry = normalizedPlatform === 'enterprise'
+    ? ['windows', 'macos', 'linux']
+    : [normalizedPlatform];
 
-  for (const candidate of candidates) {
-    const normalized = path.resolve(candidate);
-    const expectedBinary =
-      normalizedPlatform === 'windows'
-        ? path.join(normalized, 'tesseract.exe')
-        : path.join(normalized, 'bin', 'tesseract');
+  for (const platform of platformsToTry) {
+    const envKey = `TESSERACT_BUNDLE_${platform.toUpperCase()}`;
+    const candidates = [
+      process.env[envKey],
+      path.join(ROOT_DIR, 'bundled', 'tesseract', platform),
+      path.join(ROOT_DIR, 'third_party', 'tesseract', platform),
+    ].filter(Boolean);
 
-    if (fs.existsSync(expectedBinary)) {
-      return normalized;
+    for (const candidate of candidates) {
+      const normalized = path.resolve(candidate);
+      const expectedBinary =
+        platform === 'windows'
+          ? path.join(normalized, 'tesseract.exe')
+          : path.join(normalized, 'bin', 'tesseract');
+
+      if (fs.existsSync(expectedBinary)) {
+        return normalized;
+      }
     }
   }
 
@@ -467,6 +489,134 @@ exec /bin/bash "$SCRIPT_DIR/install.sh"
 `;
 }
 
+function buildEnterpriseBatchLauncher(origin) {
+  return `@echo off
+setlocal enabledelayedexpansion
+pushd "%~dp0"
+
+set BACKEND_URL=${origin}
+if "%INSTALL_ID%"=="" set INSTALL_ID=%RANDOM%%RANDOM%%RANDOM%
+if "%DEVICE_ID%"=="" set DEVICE_ID=%COMPUTERNAME%
+if exist "%~dp0backend_url.txt" (
+    for /f "usebackq delims=" %%i in ("%~dp0backend_url.txt") do (
+        if not "%%i"=="" set BACKEND_URL=%%i
+    )
+)
+
+cls
+echo.
+echo ============================================================================
+echo  EMPLOYEE MONITOR - ENTERPRISE WINDOWS LAUNCHER
+echo ============================================================================
+echo.
+echo Backend URL: %BACKEND_URL%
+echo Device ID:   %DEVICE_ID%
+echo.
+echo Choose deployment mode:
+echo   1. Install this Windows PC now
+echo   2. Prepare/deploy to multiple Windows PCs
+echo   3. Advanced PowerShell enterprise deployment
+echo.
+set /p MODE="Select mode (1/2/3, default 1): "
+if "%MODE%"=="" set MODE=1
+
+if "%MODE%"=="2" (
+    if exist "%~dp0deploy_to_multiple_pcs.bat" (
+        call "%~dp0deploy_to_multiple_pcs.bat"
+    ) else (
+        echo [ERROR] deploy_to_multiple_pcs.bat was not found.
+        pause
+        exit /b 1
+    )
+) else if "%MODE%"=="3" (
+    if exist "%~dp0deploy_powershell.bat" (
+        call "%~dp0deploy_powershell.bat"
+    ) else if exist "%~dp0deploy_multi_advanced.ps1" (
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy_multi_advanced.ps1"
+    ) else (
+        echo [ERROR] PowerShell enterprise deployment tools were not found.
+        pause
+        exit /b 1
+    )
+) else (
+    if exist "%~dp0deploy_automated.bat" (
+        call "%~dp0deploy_automated.bat"
+    ) else if exist "%~dp0install.bat" (
+        call "%~dp0install.bat"
+    ) else (
+        echo [ERROR] No Windows installer was found.
+        pause
+        exit /b 1
+    )
+)
+
+popd
+endlocal
+`;
+}
+
+function buildEnterpriseReadme(origin) {
+  return `Employee Monitor Enterprise package
+
+This archive is generated live from the Render backend and includes deployment launchers for Windows, macOS, and Linux.
+
+Use this ZIP for IT-admin or multi-computer rollout.
+
+Recommended launcher by OS (auto-configures the detected platform):
+- Windows: install_enterprise.bat (single PC, multi-PC USB/network, or PowerShell rollout)
+- macOS: install.command (or ./install.sh)
+- Linux: ./install.sh
+
+Included enterprise tools:
+- install_enterprise.bat (Windows master launcher)
+- deploy_automated.bat (Windows single-PC automated setup)
+- deploy_to_multiple_pcs.bat (Windows multi-PC coordinator)
+- deploy_multi_advanced.ps1
+- deploy_powershell.bat
+- install.bat (Windows lightweight fallback)
+- install.sh + install.command (macOS/Linux with OS/package-manager auto-detection)
+
+The installer configures the current OS automatically:
+- Windows: install_enterprise.bat routes to deploy_automated.bat or multi-PC tools.
+- macOS/Linux: install.sh detects the OS and package manager, installs dependencies where possible, then configures autostart.
+
+Backend URL:
+${origin}
+`;
+}
+
+function buildWindowsBootstrapScript(origin) {
+  return `# Employee Monitor Windows Bootstrap
+$ErrorActionPreference = 'Stop'
+$TargetDir = Join-Path $env:USERPROFILE 'EmployeeMonitorPackage'
+$ZipPath = Join-Path $env:TEMP 'employee-monitor-windows.zip'
+$PackageUrl = '${origin}/api/employee/windows.zip'
+
+Write-Host '============================================'
+Write-Host '  Employee Monitor Windows Bootstrap'
+Write-Host '============================================'
+Write-Host ''
+Write-Host 'Downloading employee package...'
+Invoke-WebRequest -Uri $PackageUrl -OutFile $ZipPath -UseBasicParsing
+
+if (Test-Path $TargetDir) { Remove-Item $TargetDir -Recurse -Force }
+New-Item -ItemType Directory -Path $TargetDir | Out-Null
+
+Write-Host 'Extracting package...'
+Expand-Archive -Path $ZipPath -DestinationPath $TargetDir -Force
+
+Set-Location $TargetDir
+Write-Host 'Launching automated installer...'
+if (Test-Path 'deploy_automated.bat') {
+  & cmd /c deploy_automated.bat
+} elseif (Test-Path 'install.bat') {
+  & cmd /c install.bat
+} else {
+  Write-Error 'No installer found in package.'
+}
+`;
+}
+
 function buildUnixBootstrapScript(platformKey, origin) {
   const normalized = normalizeEmployeePackagePlatform(platformKey);
   const platformArchive = normalized === 'macos' ? 'macos' : 'linux';
@@ -541,8 +691,8 @@ Included files:
 - backend/public/employee-distribution.html
 
 Launcher:
-- Windows: install.bat
-- macOS and Linux: install.sh
+- Windows: deploy_automated.bat (full automated setup), with install.bat as entry point
+- macOS and Linux: install.sh (auto-detects OS and package manager)
 - macOS additional launcher: install.command
 
 If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
@@ -573,21 +723,45 @@ Tip: Use the direct bootstrap download from employee-distribution.html to avoid 
 }
 
 function buildEmployeePackageManifest(platformDefinition, origin) {
+  const files = [
+    'monitor.py',
+    'install_and_run.py',
+    'requirements.txt',
+    'backend_url.txt',
+    'backend/public/setup.html',
+    'backend/public/employee-distribution.html'
+  ];
+
+  if (platformDefinition.includeUnixLauncher) {
+    files.push('install.sh');
+  }
+
+  if (platformDefinition.includeMacCommandLauncher) {
+    files.push('install.command');
+  }
+
+  if (platformDefinition.includeBatchLauncher) {
+    files.push('install.bat');
+  }
+
+  if (platformDefinition.includeWindowsAutomation) {
+    files.push('deploy_automated.bat', 'verify_tesseract.py', 'verify_autostart.py');
+  }
+
+  if (platformDefinition.includeEnterpriseTools) {
+    files.push(
+      'install_enterprise.bat',
+      'deploy_to_multiple_pcs.bat',
+      'deploy_multi_advanced.ps1',
+      'deploy_powershell.bat'
+    );
+  }
+
   return JSON.stringify({
     generatedAt: new Date().toISOString(),
     platform: platformDefinition.label,
     backendUrl: origin,
-    files: [
-      'monitor.py',
-      'install_and_run.py',
-      'requirements.txt',
-      'backend_url.txt',
-      'backend/public/setup.html',
-      'backend/public/employee-distribution.html',
-      'install.sh',
-      'install.command',
-      'install.bat'
-    ]
+    files
   }, null, 2);
 }
 
@@ -595,7 +769,10 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   const rootFiles = [
     'monitor.py',
     'install_and_run.py',
-    'requirements.txt'
+    'requirements.txt',
+    'README.md',
+    'DEPLOYMENT_GUIDE.md',
+    'QUICK_START.py'
   ];
 
   rootFiles.forEach((relativePath) => {
@@ -610,6 +787,37 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     if (fs.existsSync(installBat)) {
       archive.file(installBat, { name: 'install.bat' });
     }
+  }
+
+  if (platformDefinition.includeWindowsAutomation) {
+    [
+      'deploy_automated.bat',
+      'verify_tesseract.py',
+      'verify_autostart.py'
+    ].forEach((relativePath) => {
+      const absPath = path.join(ROOT_DIR, relativePath);
+      if (fs.existsSync(absPath)) {
+        archive.file(absPath, { name: relativePath });
+      }
+    });
+  }
+
+  if (platformDefinition.includeEnterpriseTools) {
+    archive.append(buildEnterpriseBatchLauncher(origin), { name: 'install_enterprise.bat' });
+
+    [
+      'deploy_to_multiple_pcs.bat',
+      'deploy_multi_advanced.ps1',
+      'deploy_powershell.bat',
+      'DEPLOYMENT_AUTOMATION_GUIDE.md',
+      'DEPLOYMENT_TOOLS_INDEX.md',
+      'DEPLOYMENT_QUICK_REFERENCE.txt'
+    ].forEach((relativePath) => {
+      const absPath = path.join(ROOT_DIR, relativePath);
+      if (fs.existsSync(absPath)) {
+        archive.file(absPath, { name: relativePath });
+      }
+    });
   }
 
   const tesseractDir = getBundledTesseractDir(platformKey);
@@ -637,7 +845,10 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     }
   }
 
-  archive.append(buildEmployeePackageReadme(platformDefinition.label, origin), { name: 'README.txt' });
+  const readme = platformDefinition.includeEnterpriseTools
+    ? buildEnterpriseReadme(origin)
+    : buildEmployeePackageReadme(platformDefinition.label, origin);
+  archive.append(readme, { name: 'README.txt' });
   archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'manifest.json' });
   archive.append(`${origin}\n`, { name: 'backend_url.txt' });
 }
@@ -927,6 +1138,34 @@ app.get('/api/employee/macos.zip', (req, res) => {
 
 app.get('/api/employee/linux.zip', (req, res) => {
   streamEmployeePackage(req, res, 'linux');
+});
+
+app.get('/api/employee/enterprise.zip', (req, res) => {
+  streamEmployeePackage(req, res, 'enterprise');
+});
+
+app.get('/api/employee/bootstrap.ps1', (req, res) => {
+  const origin = getPublicBaseUrl(req);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-bootstrap.ps1"');
+  res.send(buildWindowsBootstrapScript(origin));
+});
+
+app.get('/api/employee/macos-install.command', (req, res) => {
+  const origin = getPublicBaseUrl(req);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-macos-install.command"');
+  res.send(buildUnixBootstrapScript('macos', origin));
+});
+
+app.get('/api/employee/linux-install.sh', (req, res) => {
+  const origin = getPublicBaseUrl(req);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-linux-install.sh"');
+  res.send(buildUnixBootstrapScript('linux', origin));
 });
 
 app.post('/api/setup/launch-monitor', async (req, res) => {
