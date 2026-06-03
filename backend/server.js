@@ -198,6 +198,19 @@ app.use('/api/reports/employee', requireAdminAuth);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Employee Activity Monitor API is running',
+    health: '/healthz',
+    admin: '/admin.html'
+  });
+});
+
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 function ensureParentDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
