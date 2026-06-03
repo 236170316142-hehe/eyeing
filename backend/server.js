@@ -479,6 +479,19 @@ set -euo pipefail
 TARGET_DIR="$HOME/EmployeeMonitorPackage"
 ZIP_PATH="${'${TMPDIR:-/tmp}'}/${downloadName}"
 
+INSTALL_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex)' 2>/dev/null || date +%s)-$$"
+DEVICE_ID="$(hostname 2>/dev/null || uname -n 2>/dev/null || 'unknown-device')"
+BACKEND_URL="${origin}"
+export INSTALL_ID DEVICE_ID BACKEND_URL
+
+if [ "${normalized}" = "macos" ]; then
+  export SKIP_SETUP_OPEN=1
+fi
+
+printf 'Install context:\n  INSTALL_ID=%s\n  DEVICE_ID=%s\n  BACKEND_URL=%s\n' "$INSTALL_ID" "$DEVICE_ID" "$BACKEND_URL"
+
+mkdir -p "$(dirname "$ZIP_PATH")"
+
 echo "Downloading package..."
 if command -v curl >/dev/null 2>&1; then
   curl -fsSL "${packageUrl}" -o "$ZIP_PATH"
@@ -530,6 +543,7 @@ Included files:
 Launcher:
 - Windows: install.bat
 - macOS and Linux: install.sh
+- macOS additional launcher: install.command
 
 If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
 Expected bundled paths inside ZIP:
@@ -569,7 +583,10 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
       'requirements.txt',
       'backend_url.txt',
       'backend/public/setup.html',
-      'backend/public/employee-distribution.html'
+      'backend/public/employee-distribution.html',
+      'install.sh',
+      'install.command',
+      'install.bat'
     ]
   }, null, 2);
 }
@@ -900,10 +917,6 @@ app.get('/api/setup/config', async (_req, res) => {
   }
 });
 
-app.get('/api/employee/package.zip', (req, res) => {
-  streamEmployeePackage(req, res, 'windows');
-});
-
 app.get('/api/employee/windows.zip', (req, res) => {
   streamEmployeePackage(req, res, 'windows');
 });
@@ -914,92 +927,6 @@ app.get('/api/employee/macos.zip', (req, res) => {
 
 app.get('/api/employee/linux.zip', (req, res) => {
   streamEmployeePackage(req, res, 'linux');
-});
-
-app.get('/api/employee/macos-install.command', (req, res) => {
-  const origin = getPublicBaseUrl(req);
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-macos-install.command"');
-  res.send(buildUnixBootstrapScript('macos', origin));
-});
-
-app.get('/api/employee/linux-install.sh', (req, res) => {
-  const origin = getPublicBaseUrl(req);
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-linux-install.sh"');
-  res.send(buildUnixBootstrapScript('linux', origin));
-});
-
-app.get('/api/employee/bootstrap.ps1', (req, res) => {
-  const origin = getPublicBaseUrl(req);
-  const script = `
-$ErrorActionPreference = 'Stop'
-
-$packageUrl = '${origin}/api/employee/package.zip'
-$targetRoot = Join-Path $env:USERPROFILE 'Desktop'
-$targetDir = Join-Path $targetRoot 'EmployeeMonitorPackage'
-$zipPath = Join-Path $env:TEMP 'employee-monitor-package.zip'
-$installId = [guid]::NewGuid().ToString('N')
-$deviceId = $env:COMPUTERNAME
-
-$env:INSTALL_ID = $installId
-$env:DEVICE_ID = $deviceId
-$env:SKIP_SETUP_OPEN = '1'
-
-$setupUrl = '${origin}/setup.html?autoclose=1&device_id=' + [uri]::EscapeDataString($deviceId) + '&install_id=' + [uri]::EscapeDataString($installId)
-
-Write-Host 'Downloading employee package...'
-Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath
-
-Write-Host 'Stopping any existing employee monitor processes...'
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $_.ProcessId -ne $PID -and (
-      $_.CommandLine -match 'install_and_run\.py' -or
-      $_.CommandLine -match 'monitor\.py' -or
-      $_.CommandLine -match 'employee-monitor-package'
-    )
-  } |
-  ForEach-Object {
-    try {
-      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    } catch {
-    }
-  }
-
-if (Test-Path $targetDir) {
-  Remove-Item -Recurse -Force $targetDir
-}
-
-if (Test-Path (Join-Path $targetDir 'activity_data')) {
-  Remove-Item -Recurse -Force (Join-Path $targetDir 'activity_data')
-}
-
-if (Test-Path (Join-Path $targetDir 'activity_monitor.log')) {
-  Remove-Item -Force (Join-Path $targetDir 'activity_monitor.log')
-}
-
-Write-Host 'Extracting package...'
-Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
-cmd /c attrib +h +s "$targetDir" >nul 2>&1
-
-$installer = Join-Path $targetDir 'install.bat'
-if (-not (Test-Path $installer)) {
-  throw 'install.bat not found in extracted package.'
-}
-
-Write-Host 'Running install.bat (pass 1)...'
-Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait
-
-Write-Host 'Opening employee setup page...'
-Start-Process $setupUrl
-
-Write-Host 'Setup page opened. After Save, the page will try to close and start monitor automatically.'
-`;
-
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="employee-bootstrap.ps1"');
-  res.send(script.trim());
 });
 
 app.post('/api/setup/launch-monitor', async (req, res) => {
@@ -1161,9 +1088,9 @@ app.post('/api/setup/save', async (req, res) => {
     // Persist setup profile for remote monitor identity resolution.
     if (HAS_MONGO) {
       try {
-        const selector = installId
-          ? { install_id: installId }
-          : { device_id: config.device_id };
+        const selector = config.device_id
+          ? { device_id: config.device_id }
+          : { install_id: installId };
 
         await SetupProfile.findOneAndUpdate(
           selector,
@@ -1526,7 +1453,7 @@ app.get('/api/admin/trackers', async (req, res) => {
   try {
     // Show trackers from status collection and also fallback users discovered from reports.
     const trackers = await withTimeout(
-      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt last_seen_at last_report_received_at last_monitor_heartbeat_at identity_resolved queued_local_report_count last_device_id last_install_id')
+      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt last_seen_at last_report_received_at last_monitor_heartbeat_at identity_resolved queued_local_report_count last_device_id last_install_id uninstall_requested_at decommission_requested_at last_updated_by')
         .sort({ company_id: 1, user_id: 1 })
         .lean(),
       8000,
@@ -1590,6 +1517,9 @@ app.get('/api/admin/trackers', async (req, res) => {
           queued_local_report_count: 0,
           last_device_id: '',
           last_install_id: '',
+          uninstall_requested_at: null,
+          decommission_requested_at: null,
+          last_updated_by: 'admin',
           designation: String(entry?.latestDesignation || '').trim()
         });
       } else if (!merged.get(key).designation && entry?.latestDesignation) {
@@ -1624,12 +1554,17 @@ app.get('/api/admin/trackers', async (req, res) => {
   }
 });
 
-// 6. Admin Endpoint to Permanently Decommission a Tracker (Remote Uninstall)
+// 6. Admin Endpoint to Approve a Pending Uninstall Request
 app.post('/api/admin/decommission', async (req, res) => {
   try {
     const { company_id, user_id } = req.body;
     if (!company_id || !user_id) {
       return res.status(400).json({ error: "Missing company_id or user_id" });
+    }
+
+    const tracker = await TrackingStatus.findOne({ company_id, user_id }).lean();
+    if (!tracker?.uninstall_requested_at) {
+      return res.status(409).json({ error: 'No pending uninstall request exists for this tracker.' });
     }
 
     const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: false });
@@ -1638,8 +1573,9 @@ app.post('/api/admin/decommission', async (req, res) => {
       {
         is_decommissioned: true,
         is_tracking_active: false,
+        uninstall_requested_at: null,
         decommission_requested_at: new Date(),
-        last_updated_by: 'admin-decommission'
+        last_updated_by: 'admin-approve-uninstall'
       },
       { new: true, upsert: true }
     );
@@ -1663,7 +1599,39 @@ app.post('/api/admin/decommission', async (req, res) => {
   }
 });
 
-// 6b. Hard delete a tracker and all cloud data immediately.
+// 6b. Admin Endpoint to Reject a Pending Uninstall Request
+app.post('/api/admin/reject-uninstall', async (req, res) => {
+  try {
+    const { company_id, user_id } = req.body;
+    if (!company_id || !user_id) {
+      return res.status(400).json({ error: 'Missing company_id or user_id' });
+    }
+
+    const tracker = await TrackingStatus.findOne({ company_id, user_id }).lean();
+    if (!tracker?.uninstall_requested_at) {
+      return res.status(409).json({ error: 'No pending uninstall request exists for this tracker.' });
+    }
+
+    const updated = await TrackingStatus.findOneAndUpdate(
+      { company_id, user_id },
+      {
+        $unset: { uninstall_requested_at: '' },
+        $set: { last_updated_by: 'admin-reject-uninstall' }
+      },
+      { new: true }
+    );
+
+    res.json({
+      message: 'Uninstall request rejected.',
+      status: updated
+    });
+  } catch (error) {
+    console.error('[-] Error rejecting uninstall request:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 6c. Hard delete a tracker and all cloud data immediately.
 app.post('/api/admin/purge-user', async (req, res) => {
   try {
     const { company_id, user_id } = req.body;
@@ -1695,6 +1663,7 @@ app.post('/api/admin/recover-trackers', async (req, res) => {
           $set: {
             is_decommissioned: false,
             is_tracking_active: true,
+            uninstall_requested_at: null,
             last_updated_by: 'admin-recover-all'
           },
           $unset: {
@@ -1720,6 +1689,7 @@ app.post('/api/admin/recover-trackers', async (req, res) => {
         $set: {
           is_decommissioned: false,
           is_tracking_active: true,
+          uninstall_requested_at: null,
           last_updated_by: 'admin-recover-one'
         },
         $unset: {
@@ -1739,6 +1709,56 @@ app.post('/api/admin/recover-trackers', async (req, res) => {
     });
   } catch (error) {
     console.error('[-] Error recovering tracker state:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 7. Tracker-side request to uninstall this PC; admin must approve before decommission.
+app.post('/api/tracker/request-uninstall', async (req, res) => {
+  try {
+    if (!HAS_MONGO) {
+      return res.status(503).json({ error: 'Database is unavailable.' });
+    }
+
+    let { company_id, user_id, device_id, install_id } = req.body || {};
+    company_id = normalizeIdentity(company_id);
+    user_id = normalizeIdentity(user_id);
+    device_id = normalizeIdentity(device_id);
+    install_id = normalizeIdentity(install_id);
+
+    if ((!company_id || !user_id) && (device_id || install_id)) {
+      const profile = await resolveSetupProfile({ installId: install_id, deviceId: device_id });
+      company_id = company_id || normalizeIdentity(profile?.company_id);
+      user_id = user_id || normalizeIdentity(profile?.user_id);
+      device_id = device_id || normalizeIdentity(profile?.device_id);
+      install_id = install_id || normalizeIdentity(profile?.install_id);
+    }
+
+    if (!company_id || !user_id) {
+      return res.status(400).json({ error: 'Missing company_id or user_id (or unresolved device identity).' });
+    }
+
+    const updated = await TrackingStatus.findOneAndUpdate(
+      { company_id, user_id },
+      {
+        $set: {
+          is_tracking_active: true,
+          is_decommissioned: false,
+          uninstall_requested_at: new Date(),
+          last_device_id: device_id || undefined,
+          last_install_id: install_id || undefined,
+          last_updated_by: 'user-request-uninstall'
+        }
+      },
+      { new: true, upsert: true }
+    );
+
+    res.json({
+      message: 'Uninstall request sent to admin.',
+      status: updated
+    });
+  } catch (error) {
+    console.error('[-] Error requesting uninstall:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
