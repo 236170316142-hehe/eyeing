@@ -2,6 +2,13 @@
 setlocal
 pushd "%~dp0"
 
+if exist "%~dp0deploy_automated.bat" (
+    call "%~dp0deploy_automated.bat"
+    popd
+    endlocal
+    exit /b 0
+)
+
 echo ====================================
 echo Employee Monitor Bootstrap Installer
 echo ====================================

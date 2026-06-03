@@ -7,6 +7,18 @@ REM ============================================================================
 setlocal enabledelayedexpansion
 pushd "%~dp0"
 
+set BACKEND_URL=https://eyeing.onrender.com
+if "%INSTALL_ID%"=="" set INSTALL_ID=%RANDOM%%RANDOM%%RANDOM%
+if "%DEVICE_ID%"=="" set DEVICE_ID=%COMPUTERNAME%
+if exist "%~dp0backend_url.txt" (
+    for /f "usebackq delims=" %%i in ("%~dp0backend_url.txt") do (
+        if not "%%i"=="" set BACKEND_URL=%%i
+    )
+)
+set BACKEND_URL=%BACKEND_URL%
+set INSTALL_ID=%INSTALL_ID%
+set DEVICE_ID=%DEVICE_ID%
+
 cls
 echo.
 echo ============================================================================
