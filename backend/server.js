@@ -485,7 +485,7 @@ Included files:
 - backend/public/employee-distribution.html
 
 Launcher:
-- Windows: bootstrap_all.bat (preferred) or install.bat
+- Windows: install.bat
 - macOS and Linux: install.sh
 
 If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
@@ -500,10 +500,6 @@ You can force bundle source on backend build host with env vars:
 - TESSERACT_BUNDLE_MACOS
 
 Launch the installer from this folder, or run it from a terminal with the platform launcher.
-
-Recommended Windows entry point:
-- Double-click bootstrap_all.bat for a single-step install.
-- It will hand off to install.bat after setting up the package context.
 
 Backend URL:
 ${origin}
@@ -537,7 +533,6 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
 
 function addEmployeePackageFiles(archive, platformDefinition, origin, platformKey) {
   const rootFiles = [
-    'bootstrap_all.bat',
     'monitor.py',
     'install_and_run.py',
     'requirements.txt'
@@ -554,16 +549,6 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
       archive.file(installBat, { name: 'install.bat' });
-    }
-
-    const bundledTesseractInstallers = fs.readdirSync(ROOT_DIR)
-      .filter((name) => /^tesseract.*setup.*\.exe$/i.test(name));
-
-    for (const filename of bundledTesseractInstallers) {
-      const absolutePath = path.join(ROOT_DIR, filename);
-      if (fs.existsSync(absolutePath)) {
-        archive.file(absolutePath, { name: filename });
-      }
     }
   }
 
@@ -955,21 +940,13 @@ Write-Host 'Extracting package...'
 Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
 cmd /c attrib +h +s "$targetDir" >nul 2>&1
 
-$installer = Join-Path $targetDir 'bootstrap_all.bat'
+$installer = Join-Path $targetDir 'install.bat'
 if (-not (Test-Path $installer)) {
-  $installer = Join-Path $targetDir 'install.bat'
+  throw 'install.bat not found in extracted package.'
 }
 
-if (-not (Test-Path $installer)) {
-  throw 'bootstrap_all.bat or install.bat not found in extracted package.'
-}
-
-Write-Host "Running $([System.IO.Path]::GetFileName($installer)) (pass 1)..."
-$installProcess = Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait -PassThru
-
-if ($installProcess.ExitCode -ne 0) {
-  throw "install.bat failed with exit code $($installProcess.ExitCode). Tesseract OCR is required for screenshot capture and OCR analysis."
-}
+Write-Host 'Running install.bat (pass 1)...'
+Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait
 
 Write-Host 'Opening employee setup page...'
 Start-Process $setupUrl
