@@ -268,21 +268,24 @@ function getEmployeePackageDefinition(platform) {
   return EMPLOYEE_PACKAGE_DEFINITIONS[normalizeEmployeePackagePlatform(platform)];
 }
 
-function findBundledTesseractDir() {
-  if (process.platform !== 'win32') {
-    return null;
-  }
+function getBundledTesseractDir(platformKey) {
+  const normalizedPlatform = normalizeEmployeePackagePlatform(platformKey);
+  const envKey = `TESSERACT_BUNDLE_${normalizedPlatform.toUpperCase()}`;
 
   const candidates = [
-    process.env.TESSERACT_DIR,
-    process.env.TESSERACT_HOME,
-    'C:\\Program Files\\Tesseract-OCR',
-    'C:\\Program Files (x86)\\Tesseract-OCR'
+    process.env[envKey],
+    path.join(ROOT_DIR, 'bundled', 'tesseract', normalizedPlatform),
+    path.join(ROOT_DIR, 'third_party', 'tesseract', normalizedPlatform),
   ].filter(Boolean);
 
   for (const candidate of candidates) {
     const normalized = path.resolve(candidate);
-    if (fs.existsSync(path.join(normalized, 'tesseract.exe'))) {
+    const expectedBinary =
+      normalizedPlatform === 'windows'
+        ? path.join(normalized, 'tesseract.exe')
+        : path.join(normalized, 'bin', 'tesseract');
+
+    if (fs.existsSync(expectedBinary)) {
       return normalized;
     }
   }
@@ -311,6 +314,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+echo "============================================"
+echo "  Employee Monitor Installer (Unix)"
+echo "============================================"
+
+if [ -x "$SCRIPT_DIR/tesseract/bin/tesseract" ]; then
+  export TESSERACT_CMD="$SCRIPT_DIR/tesseract/bin/tesseract"
+elif [ -x "$SCRIPT_DIR/tesseract/tesseract" ]; then
+  export TESSERACT_CMD="$SCRIPT_DIR/tesseract/tesseract"
+fi
 
 install_python_and_tesseract() {
   local python_found=0
@@ -351,7 +364,7 @@ install_python_and_tesseract() {
     if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
       echo "Installing Python and Tesseract with apt..."
       sudo apt-get update
-      sudo apt-get install -y python3 python3-pip tesseract-ocr
+      sudo apt-get install -y python3 python3-pip python3-venv tesseract-ocr scrot xclip
     fi
     return 0
   fi
@@ -359,7 +372,7 @@ install_python_and_tesseract() {
   if command -v dnf >/dev/null 2>&1; then
     if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
       echo "Installing Python and Tesseract with dnf..."
-      sudo dnf install -y python3 python3-pip tesseract
+      sudo dnf install -y python3 python3-pip python3-virtualenv tesseract scrot xclip
     fi
     return 0
   fi
@@ -367,7 +380,7 @@ install_python_and_tesseract() {
   if command -v pacman >/dev/null 2>&1; then
     if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
       echo "Installing Python and Tesseract with pacman..."
-      sudo pacman -Sy --noconfirm python python-pip tesseract
+      sudo pacman -Sy --noconfirm python python-pip tesseract scrot xclip
     fi
     return 0
   fi
@@ -384,6 +397,20 @@ else
   PYTHON_BIN="$(command -v python)"
 fi
 
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
+  echo "Creating local virtual environment..."
+  if "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >/dev/null 2>&1; then
+    echo "Virtual environment ready."
+  else
+    echo "Could not create venv. Falling back to system Python."
+  fi
+fi
+
+if [ -x "$VENV_PY" ]; then
+  PYTHON_BIN="$VENV_PY"
+fi
+
 exec "$PYTHON_BIN" install_and_run.py --autostart
 `;
 }
@@ -391,7 +418,56 @@ exec "$PYTHON_BIN" install_and_run.py --autostart
 function buildMacCommandLauncher() {
   return `#!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+xattr -dr com.apple.quarantine "$SCRIPT_DIR" >/dev/null 2>&1 || true
+chmod +x "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/install.command" >/dev/null 2>&1 || true
 exec /bin/bash "$SCRIPT_DIR/install.sh"
+`;
+}
+
+function buildUnixBootstrapScript(platformKey, origin) {
+  const normalized = normalizeEmployeePackagePlatform(platformKey);
+  const platformArchive = normalized === 'macos' ? 'macos' : 'linux';
+  const packageUrl = `${origin}/api/employee/${platformArchive}.zip`;
+  const downloadName = `employee-monitor-${platformArchive}.zip`;
+
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+TARGET_DIR="$HOME/EmployeeMonitorPackage"
+ZIP_PATH="${'${TMPDIR:-/tmp}'}/${downloadName}"
+
+echo "Downloading package..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "${packageUrl}" -o "$ZIP_PATH"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$ZIP_PATH" "${packageUrl}"
+else
+  echo "curl or wget is required to download the package."
+  exit 1
+fi
+
+rm -rf "$TARGET_DIR"
+mkdir -p "$TARGET_DIR"
+
+echo "Extracting package to $TARGET_DIR..."
+if command -v unzip >/dev/null 2>&1; then
+  unzip -o "$ZIP_PATH" -d "$TARGET_DIR" >/dev/null
+elif command -v bsdtar >/dev/null 2>&1; then
+  bsdtar -xf "$ZIP_PATH" -C "$TARGET_DIR"
+else
+  echo "unzip (or bsdtar) is required to extract the package."
+  exit 1
+fi
+
+if [ "${normalized}" = "macos" ]; then
+  xattr -dr com.apple.quarantine "$TARGET_DIR" >/dev/null 2>&1 || true
+fi
+
+chmod +x "$TARGET_DIR/install.sh" >/dev/null 2>&1 || true
+chmod +x "$TARGET_DIR/install.command" >/dev/null 2>&1 || true
+
+cd "$TARGET_DIR"
+exec /bin/bash "$TARGET_DIR/install.sh"
 `;
 }
 
@@ -409,16 +485,37 @@ Included files:
 - backend/public/employee-distribution.html
 
 Launcher:
-- Windows: install.bat
+- Windows: bootstrap_all.bat (preferred) or install.bat
 - macOS and Linux: install.sh
 
-If Python or Tesseract are missing, the macOS/Linux launcher will try to install them automatically using the available package manager.
-If a Windows Tesseract bundle is present in the package, the installer will use it automatically.
+If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
+Expected bundled paths inside ZIP:
+- Windows: tesseract/tesseract.exe
+- Linux/macOS: tesseract/bin/tesseract
+
+If bundle is missing, installer falls back to system/package-manager install.
+You can force bundle source on backend build host with env vars:
+- TESSERACT_BUNDLE_WINDOWS
+- TESSERACT_BUNDLE_LINUX
+- TESSERACT_BUNDLE_MACOS
 
 Launch the installer from this folder, or run it from a terminal with the platform launcher.
 
+Recommended Windows entry point:
+- Double-click bootstrap_all.bat for a single-step install.
+- It will hand off to install.bat after setting up the package context.
+
 Backend URL:
 ${origin}
+
+macOS Access Notes (Gatekeeper):
+1) Open the extracted package folder and double-click install.command.
+2) If Gatekeeper blocks it, open Terminal and run these commands inside the extracted folder:
+  xattr -dr com.apple.quarantine .
+  chmod +x install.sh install.command
+  ./install.sh
+
+Tip: Use the direct bootstrap download from employee-distribution.html to avoid manual unzip/chmod steps.
 `;
 }
 
@@ -438,8 +535,9 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
   }, null, 2);
 }
 
-function addEmployeePackageFiles(archive, platformDefinition, origin) {
+function addEmployeePackageFiles(archive, platformDefinition, origin, platformKey) {
   const rootFiles = [
+    'bootstrap_all.bat',
     'monitor.py',
     'install_and_run.py',
     'requirements.txt'
@@ -458,10 +556,20 @@ function addEmployeePackageFiles(archive, platformDefinition, origin) {
       archive.file(installBat, { name: 'install.bat' });
     }
 
-    const tesseractDir = findBundledTesseractDir();
-    if (tesseractDir) {
-      addDirectoryRecursive(archive, tesseractDir, 'tesseract');
+    const bundledTesseractInstallers = fs.readdirSync(ROOT_DIR)
+      .filter((name) => /^tesseract.*setup.*\.exe$/i.test(name));
+
+    for (const filename of bundledTesseractInstallers) {
+      const absolutePath = path.join(ROOT_DIR, filename);
+      if (fs.existsSync(absolutePath)) {
+        archive.file(absolutePath, { name: filename });
+      }
     }
+  }
+
+  const tesseractDir = getBundledTesseractDir(platformKey);
+  if (tesseractDir) {
+    addDirectoryRecursive(archive, tesseractDir, 'tesseract');
   }
 
   const webAssets = [
@@ -491,7 +599,8 @@ function addEmployeePackageFiles(archive, platformDefinition, origin) {
 
 function streamEmployeePackage(req, res, platform) {
   const origin = getPublicBaseUrl(req);
-  const platformDefinition = getEmployeePackageDefinition(platform);
+  const platformKey = normalizeEmployeePackagePlatform(platform);
+  const platformDefinition = getEmployeePackageDefinition(platformKey);
   const archive = archiver('zip', { zlib: { level: 9 } });
 
   res.setHeader('Content-Type', 'application/zip');
@@ -506,7 +615,7 @@ function streamEmployeePackage(req, res, platform) {
   });
 
   archive.pipe(res);
-  addEmployeePackageFiles(archive, platformDefinition, origin);
+  addEmployeePackageFiles(archive, platformDefinition, origin, platformKey);
   archive.finalize();
 }
 
@@ -779,6 +888,20 @@ app.get('/api/employee/linux.zip', (req, res) => {
   streamEmployeePackage(req, res, 'linux');
 });
 
+app.get('/api/employee/macos-install.command', (req, res) => {
+  const origin = getPublicBaseUrl(req);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-macos-install.command"');
+  res.send(buildUnixBootstrapScript('macos', origin));
+});
+
+app.get('/api/employee/linux-install.sh', (req, res) => {
+  const origin = getPublicBaseUrl(req);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="employee-monitor-linux-install.sh"');
+  res.send(buildUnixBootstrapScript('linux', origin));
+});
+
 app.get('/api/employee/bootstrap.ps1', (req, res) => {
   const origin = getPublicBaseUrl(req);
   const script = `
@@ -832,13 +955,21 @@ Write-Host 'Extracting package...'
 Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
 cmd /c attrib +h +s "$targetDir" >nul 2>&1
 
-$installer = Join-Path $targetDir 'install.bat'
+$installer = Join-Path $targetDir 'bootstrap_all.bat'
 if (-not (Test-Path $installer)) {
-  throw 'install.bat not found in extracted package.'
+  $installer = Join-Path $targetDir 'install.bat'
 }
 
-Write-Host 'Running install.bat (pass 1)...'
-Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait
+if (-not (Test-Path $installer)) {
+  throw 'bootstrap_all.bat or install.bat not found in extracted package.'
+}
+
+Write-Host "Running $([System.IO.Path]::GetFileName($installer)) (pass 1)..."
+$installProcess = Start-Process -FilePath $installer -WorkingDirectory $targetDir -Wait -PassThru
+
+if ($installProcess.ExitCode -ne 0) {
+  throw "install.bat failed with exit code $($installProcess.ExitCode). Tesseract OCR is required for screenshot capture and OCR analysis."
+}
 
 Write-Host 'Opening employee setup page...'
 Start-Process $setupUrl
