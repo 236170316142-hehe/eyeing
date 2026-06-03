@@ -159,20 +159,14 @@
         <p style="margin:0; color: var(--muted);">Pick the ZIP that matches the employee's OS. The archive includes the latest installer and monitor files.</p>
 
         <div class="actions">
-          <a class="btn primary" href="/api/employee/windows.zip">Download Windows ZIP</a>
           <a class="btn accent" href="/api/employee/macos.zip">Download macOS ZIP</a>
           <a class="btn" href="/api/employee/linux.zip">Download Linux ZIP</a>
-        </div>
-
-        <div class="actions" style="margin-top: 10px;">
-          <a class="btn accent" href="/api/employee/macos-install.command">Direct macOS Installer</a>
-          <a class="btn" href="/api/employee/linux-install.sh">Direct Linux Installer</a>
-          <a class="btn" href="/api/employee/bootstrap.ps1">Windows Bootstrap Script</a>
+          <a class="btn primary" href="/api/employee/windows.zip">Download Windows ZIP</a>
         </div>
 
         <div class="block">
           <h3>Live package contents</h3>
-          <p>Every ZIP includes the current monitor, installer, requirements, and backend URL. Windows ships with <strong>install.bat</strong>; macOS and Linux ship with <strong>install.sh</strong> and a macOS <strong>install.command</strong> launcher. Linux/macOS now use a local virtual environment automatically to avoid system pip permission errors.</p>
+          <p>Each ZIP is a complete, live build for its platform. The package contains the latest backend URL, monitor code, installer script, and setup pages. macOS and Linux packages include <strong>install.sh</strong> plus a macOS-friendly <strong>install.command</strong>; Windows includes <strong>install.bat</strong>. All OS builds now ship the same integrated feature set.</p>
         </div>
 
         <div class="note">

@@ -190,6 +190,12 @@
       border: 1px solid var(--border);
     }
 
+    .danger {
+      background: rgba(239,68,68,0.16);
+      color: #fecaca;
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+
     .side {
       border-left: 1px solid var(--border);
       background: rgba(255,255,255,0.02);
@@ -299,6 +305,7 @@
           <div class="actions">
             <button type="submit" class="primary">Save Setup</button>
             <button type="button" class="secondary" id="loadCurrent">Load Current Config</button>
+            <button type="button" class="danger" id="requestUninstall" disabled>Request uninstall</button>
           </div>
           <div id="status" class="status"></div>
           <div class="fineprint">
@@ -323,6 +330,7 @@
     const form = document.getElementById('setupForm');
     const status = document.getElementById('status');
     const loadCurrent = document.getElementById('loadCurrent');
+    const requestUninstallBtn = document.getElementById('requestUninstall');
     const providerButtons = Array.from(document.querySelectorAll('.provider-btn'));
     const providerGoogle = document.getElementById('providerGoogle');
     const loginEmailInput = document.getElementById('login_email');
@@ -384,6 +392,28 @@
         deviceIdInput.readOnly = true;
         deviceIdInput.title = 'Auto-filled from installer link';
       }
+    }
+
+    function applyLoadedSetupConfig(config, locked = false) {
+      document.getElementById('employee_id').value = config.employee_id || '';
+      document.getElementById('user_id').value = config.user_id || '';
+      document.getElementById('company_id').value = config.company_id || '';
+      document.getElementById('org_name').value = config.org_name || '';
+      deviceIdInput.value = config.device_id || '';
+      loginEmailInput.value = config.login_email || '';
+      document.getElementById('designation').value = config.designation || '';
+
+      if (locked) {
+        document.getElementById('employee_id').readOnly = true;
+        document.getElementById('user_id').readOnly = true;
+        document.getElementById('company_id').readOnly = true;
+        document.getElementById('org_name').readOnly = true;
+        deviceIdInput.readOnly = true;
+        loginEmailInput.readOnly = true;
+        document.getElementById('designation').readOnly = true;
+      }
+
+      requestUninstallBtn.disabled = false;
     }
 
     function clearGoogleVerification() {
@@ -462,16 +492,11 @@
 
     async function loadConfig() {
       try {
+        requestUninstallBtn.disabled = true;
         const response = await fetch('/api/setup/config');
         const data = await response.json();
         if (data.exists && data.config) {
-          document.getElementById('employee_id').value = data.config.employee_id || '';
-          document.getElementById('user_id').value = data.config.user_id || '';
-          document.getElementById('company_id').value = data.config.company_id || '';
-          document.getElementById('org_name').value = data.config.org_name || '';
-          deviceIdInput.value = data.config.device_id || '';
-          loginEmailInput.value = data.config.login_email || '';
-          document.getElementById('designation').value = data.config.designation || '';
+          applyLoadedSetupConfig(data.config, false);
           const savedProvider = data.config.login_provider === 'google' ? 'google' : 'email';
 
           if (savedProvider === 'google' && googleEnabled && data.config.login_email) {
@@ -487,6 +512,28 @@
               : 'Configuration loaded, but login email is still missing.';
           }
         } else {
+          const resolveParams = new URLSearchParams();
+          if (queryInstallId) resolveParams.set('install_id', queryInstallId);
+          if (queryDeviceId) resolveParams.set('device_id', queryDeviceId);
+
+          if (resolveParams.toString()) {
+            const resolveResponse = await fetch(`/api/setup/resolve?${resolveParams.toString()}`);
+            const resolved = await resolveResponse.json();
+
+            if (resolved.exists && resolved.config) {
+              applyLoadedSetupConfig(resolved.config, true);
+              const savedProvider = resolved.config.login_provider === 'google' ? 'google' : 'email';
+              if (savedProvider === 'google' && googleEnabled && resolved.config.login_email) {
+                googleVerifiedEmail = String(resolved.config.login_email).trim();
+                setProvider('google');
+              } else {
+                setProvider('email');
+              }
+              status.textContent = 'Loaded saved profile for this device. Reinstalling will reuse the same user ID.';
+              return;
+            }
+          }
+
           status.textContent = 'No saved config found yet.';
         }
 
@@ -496,6 +543,41 @@
         }
       } catch (error) {
         status.textContent = 'Could not load current config.';
+      }
+    }
+
+    async function requestUninstall() {
+      const companyId = document.getElementById('company_id').value.trim();
+      const userId = document.getElementById('user_id').value.trim();
+      const deviceId = deviceIdInput.value.trim() || queryDeviceId;
+      const installId = queryInstallId;
+
+      if (!companyId || !userId) {
+        status.textContent = 'Load or save the setup first so the uninstall request has a user ID.';
+        return;
+      }
+
+      if (!confirm(`Request uninstall for ${userId}? Admin approval will be required before the PC removes itself.`)) {
+        return;
+      }
+
+      requestUninstallBtn.disabled = true;
+      status.textContent = 'Sending uninstall request to admin...';
+
+      try {
+        const response = await fetch('/api/tracker/request-uninstall', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: companyId, user_id: userId, device_id: deviceId, install_id: installId })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+
+        status.textContent = 'Uninstall request sent. Waiting for admin approval.';
+      } catch (error) {
+        status.textContent = error.message || 'Could not send uninstall request.';
+        requestUninstallBtn.disabled = false;
       }
     }
 
@@ -570,6 +652,7 @@
     });
 
     loadCurrent.addEventListener('click', loadConfig);
+    requestUninstallBtn.addEventListener('click', requestUninstall);
 
     async function initialize() {
       hydrateIdentityFromQuery();

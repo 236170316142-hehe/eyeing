@@ -179,6 +179,9 @@
     .btn-decommission { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
     .btn-decommission:hover { background: rgba(239, 68, 68, 0.25); }
 
+    .btn-approve-uninstall { background: rgba(245, 158, 11, 0.16); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .btn-approve-uninstall:hover { background: rgba(245, 158, 11, 0.26); }
+
     .health-stack {
       display: grid;
       gap: 4px;
@@ -694,11 +697,42 @@
       if(win.style.display === 'flex') document.getElementById('chatInput').focus();
     }
 
+    function shiftDateString(dateString, deltaDays) {
+      const parts = String(dateString || '').split('-').map(Number);
+      if (parts.length !== 3 || parts.some(Number.isNaN)) return getLocalDateString();
+
+      const shifted = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      shifted.setUTCDate(shifted.getUTCDate() + Number(deltaDays || 0));
+      return shifted.toISOString().slice(0, 10);
+    }
+
+    function isGreetingOnlyMessage(message) {
+      const normalized = String(message || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!normalized) return false;
+
+      return /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)( there)?$/.test(normalized);
+    }
+
+    function resolveChatDateFromMessage(message, fallbackDate) {
+      const baseDate = fallbackDate || getLocalDateString();
+      const normalized = String(message || '').toLowerCase();
+
+      if (/\bday before yesterday\b/.test(normalized)) return shiftDateString(baseDate, -2);
+      if (/\byesterday\b/.test(normalized)) return shiftDateString(baseDate, -1);
+      if (/\btoday\b/.test(normalized)) return baseDate;
+
+      return baseDate;
+    }
+
     async function sendChat() {
       const input = document.getElementById('chatInput');
       const msgs = document.getElementById('chatMsgs');
       const text = input.value.trim();
       if(!text) return;
+
+      const fallbackDate = document.getElementById('modalDate')?.value || getLocalDateString();
+      const resolvedDate = resolveChatDateFromMessage(text, fallbackDate);
+      const greetingOnly = isGreetingOnlyMessage(text);
 
       // Add user message
       const uMsg = document.createElement('div');
@@ -721,31 +755,37 @@
           body: JSON.stringify({ 
             message: text,
             company_id: _currentModalCompId || "Cord4 Tech", // Use open modal context or default
-            user_id: _currentModalUserId || "0001"
+            user_id: _currentModalUserId || "0001",
+            date: resolvedDate,
+            timezoneOffsetMinutes: new Date().getTimezoneOffset()
           })
         });
         const data = await response.json();
         const aiAnswer = data.answer || data.error || "Sorry, I encountered an error.";
-        const chatReports = await getChatContextReports();
-        const visualBlock = renderChatVisualBlock(chatReports, _currentModalDesignation);
-        bMsg.innerHTML = marked.parse(aiAnswer) + visualBlock;
+        if (greetingOnly) {
+          bMsg.innerHTML = marked.parse(aiAnswer);
+        } else {
+          const chatReports = await getChatContextReports(resolvedDate);
+          const visualBlock = renderChatVisualBlock(chatReports, _currentModalDesignation);
+          bMsg.innerHTML = marked.parse(aiAnswer) + visualBlock;
+        }
       } catch (err) {
         bMsg.textContent = "Connection error. Is the server running?";
       }
       msgs.scrollTop = msgs.scrollHeight;
     }
 
-    async function getChatContextReports() {
+    async function getChatContextReports(pickedDate) {
       const compId = _currentModalCompId || 'Cord4 Tech';
       const userId = _currentModalUserId || '0001';
-      const pickedDate = document.getElementById('modalDate')?.value || getLocalDateString();
+      const targetDate = pickedDate || document.getElementById('modalDate')?.value || getLocalDateString();
 
-      if (Array.isArray(window.currentReports) && window._currentReportsDate === pickedDate) {
+      if (Array.isArray(window.currentReports) && window._currentReportsDate === targetDate) {
         return window.currentReports;
       }
 
       try {
-        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${pickedDate}`);
+        const response = await fetch(`/api/reports/employee/${encodeURIComponent(compId)}/${encodeURIComponent(userId)}?date=${targetDate}`);
         if (!response.ok) return [];
         const reports = await response.json();
         return Array.isArray(reports) ? reports : [];
@@ -1428,28 +1468,29 @@
           const tr = document.createElement('tr');
           const isEnabled = t.is_tracking_active;
           const isDecom = t.is_decommissioned;
+          const isPendingUninstall = Boolean(t.uninstall_requested_at) && !isDecom;
           
           tr.innerHTML = `
             <td style="font-weight: 600; color: ${isDecom ? '#64748b' : '#3b82f6'};">${t.company_id}</td>
             <td style="font-weight: 500; color: ${isDecom ? '#64748b' : 'inherit'};">${t.user_id}</td>
             <td style="color: ${isDecom ? '#64748b' : 'inherit'};">${t.designation || 'Not set'}</td>
             <td>
-              <span id="badge-${t._id}" class="status-badge ${isDecom ? 'status-paused' : (isEnabled ? 'status-active' : 'status-paused')}"
-                    style="${isDecom ? 'background: rgba(234, 179, 8, 0.2); color: #eab308;' : ''}">
-                ${isDecom ? 'UNINSTALLING...' : (isEnabled ? 'ACTIVE' : 'PAUSED')}
+              <span id="badge-${t._id}" class="status-badge ${isDecom ? 'status-paused' : (isPendingUninstall ? 'status-paused' : (isEnabled ? 'status-active' : 'status-paused'))}"
+                    style="${isDecom ? 'background: rgba(234, 179, 8, 0.2); color: #eab308;' : (isPendingUninstall ? 'background: rgba(245, 158, 11, 0.18); color: #fbbf24;' : '')}">
+                ${isDecom ? 'UNINSTALLING...' : (isPendingUninstall ? 'PENDING APPROVAL' : (isEnabled ? 'ACTIVE' : 'PAUSED'))}
               </span>
             </td>
             <td>
-               <input type="number" value="${t.report_interval || 120}" ${isDecom ? 'disabled' : ''}
+               <input type="number" value="${t.report_interval || 120}" ${isDecom || isPendingUninstall ? 'disabled' : ''}
                      style="width: 70px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);
-                            color: ${isDecom ? '#64748b' : 'white'}; padding: 4px 8px; border-radius: 6px; font-family: 'Outfit'; font-size: 0.85rem;"
+                            color: ${(isDecom || isPendingUninstall) ? '#64748b' : 'white'}; padding: 4px 8px; border-radius: 6px; font-family: 'Outfit'; font-size: 0.85rem;"
                      onchange="changeInterval(this.value, '${t.company_id}', '${t.user_id}')">
             </td>
             <td>
               <label class="switch">
-                <input type="checkbox" ${isEnabled ? 'checked' : ''} ${isDecom ? 'disabled' : ''}
+                <input type="checkbox" ${isEnabled ? 'checked' : ''} ${isDecom || isPendingUninstall ? 'disabled' : ''}
                        onchange="toggleSpecificTracker(this, '${t.company_id}', '${t.user_id}', '${t._id}')">
-                <span class="slider" style="${isDecom ? 'background-color: #475569;' : ''}"></span>
+                <span class="slider" style="${(isDecom || isPendingUninstall) ? 'background-color: #475569;' : ''}"></span>
               </label>
             </td>
             <td>${buildHealthCellHtml(t)}</td>
@@ -1461,8 +1502,11 @@
                 <button onclick="focusChat('${t.company_id}', '${t.user_id}')" class="btn-action" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">
                    💬 Chat
                 </button>
-                <button onclick="decommission('${t.company_id}', '${t.user_id}', this, ${isDecom ? 'true' : 'false'})" class="btn-action btn-decommission">
-                   🗑 ${isDecom ? 'Wiping' : 'End'}
+                 <button onclick="approveUninstall('${t.company_id}', '${t.user_id}', this, ${isPendingUninstall ? 'true' : 'false'})" class="btn-action ${isPendingUninstall ? 'btn-approve-uninstall' : 'btn-decommission'}" ${isPendingUninstall ? '' : 'disabled'}>
+                   🗑 ${isDecom ? 'Wiping' : (isPendingUninstall ? 'Approve uninstall' : 'Await request')}
+                </button>
+                <button onclick="rejectUninstall('${t.company_id}', '${t.user_id}', this, ${isPendingUninstall ? 'true' : 'false'})" class="btn-action btn-decommission" ${isPendingUninstall ? '' : 'disabled'}>
+                   ❌ ${isPendingUninstall ? 'Reject request' : 'Await request'}
                 </button>
               </div>
             </td>
@@ -1842,34 +1886,46 @@
       }
     }
 
-    async function decommission(compId, userId, btn, alreadyDecommissioned = false) {
-      const hardDelete = Boolean(alreadyDecommissioned);
-      const prompt = hardDelete
-        ? `Permanently wipe ${userId} from cloud records and tracker list?`
-        : `Permanently decommission ${userId}? This will uninstall the software remotely.`;
+    async function approveUninstall(compId, userId, btn, canApprove = false) {
+      if (!canApprove) return;
 
-      if (!confirm(prompt)) return;
+      if (!confirm(`Approve uninstall request for ${userId}? The next check-in will trigger local self-removal.`)) return;
 
       try {
-        const endpoint = hardDelete ? '/api/admin/purge-user' : '/api/admin/decommission';
-        const response = await fetch(endpoint, {
+        const response = await fetch('/api/admin/decommission', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ company_id: compId, user_id: userId })
         });
-        if (!response.ok) throw new Error();
         const data = await response.json();
-        if (hardDelete) {
-          showToast(`Tracker ${userId} removed from cloud directory.`);
-        } else {
-          const warn = data?.offlineWarning ? ` ${data.offlineWarning}` : '';
-          showToast(`Kill order sent to ${userId}. Waiting for device confirmation...${warn}`);
-        }
+        if (!response.ok) throw new Error(data.error || 'Approval failed');
+        const warn = data?.offlineWarning ? ` ${data.offlineWarning}` : '';
+        showToast(`Uninstall approved for ${userId}.${warn}`);
 
-        // Reload tracker list after any destructive action.
         await loadTrackers();
       } catch {
-        showToast(hardDelete ? 'Failed to wipe tracker.' : 'Failed to decommission.');
+        showToast('Failed to approve uninstall.');
+      }
+    }
+
+    async function rejectUninstall(compId, userId, btn, canReject = false) {
+      if (!canReject) return;
+
+      if (!confirm(`Reject uninstall request for ${userId}? This will keep tracking active for this PC.`)) return;
+
+      try {
+        const response = await fetch('/api/admin/reject-uninstall', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Reject failed');
+        showToast(`Uninstall request rejected for ${userId}.`);
+
+        await loadTrackers();
+      } catch {
+        showToast('Failed to reject uninstall request.');
       }
     }
 
