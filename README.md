@@ -2,6 +2,57 @@
 
 Node.js dashboard + FastAPI AI backend scaffold based on your PRD.
 
+## ⚠️ CRITICAL REQUIREMENT: Tesseract-OCR
+
+**Tesseract-OCR is MANDATORY** for this application to function. It is required for screenshot analysis and cannot be bypassed.
+
+### Verification & Installation
+
+**Verify Tesseract Installation:**
+```bash
+python verify_tesseract.py
+```
+
+This will check if Tesseract is properly installed and working with a comprehensive test report.
+
+### Installation
+
+**Windows:**
+- The installer (`install.bat` / `install_and_run.py`) automatically downloads and installs Tesseract
+- Manual install: https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe
+- **Bundled**: If `tesseract-ocr-w64-setup-*.exe` exists in the folder, the installer will use it
+
+**macOS:**
+```bash
+brew install tesseract
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install tesseract-ocr
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install tesseract
+```
+
+## 🔄 Autostart Configuration
+
+The monitor is configured to automatically start when the computer boots or user logs in.
+
+**Verify Autostart Setup (Windows):**
+```bash
+python verify_autostart.py
+```
+
+This will check if autostart is properly configured across all methods:
+- Task Scheduler (most reliable)
+- Registry entries (user & system-wide)
+- VBS startup script (legacy)
+
+---
+
 ## Project Structure
 
 - `frontend-node`: Node.js + Express + EJS dashboard

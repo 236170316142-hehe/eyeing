@@ -23,6 +23,42 @@ def install_packages():
             print(f"Installing {package}...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', package, '-q'])
 
+def check_tesseract():
+    """Check if Tesseract is installed and accessible."""
+    import shutil
+    
+    # Check common paths
+    candidates = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        '/usr/local/bin/tesseract',
+        '/usr/bin/tesseract',
+        '/opt/homebrew/bin/tesseract',
+    ]
+    
+    # Check environment variable
+    if os.environ.get('TESSERACT_CMD') and os.path.exists(os.environ.get('TESSERACT_CMD')):
+        print(f"[OK] Tesseract found at: {os.environ.get('TESSERACT_CMD')}")
+        return True
+    
+    # Check PATH
+    if shutil.which('tesseract'):
+        print(f"[OK] Tesseract found on PATH: {shutil.which('tesseract')}")
+        return True
+    
+    # Check common paths
+    for path in candidates:
+        if os.path.exists(path):
+            print(f"[OK] Tesseract found at: {path}")
+            return True
+    
+    print("[ERROR] Tesseract OCR is required but was not found!")
+    print("INSTALLATION INSTRUCTIONS:")
+    print("  Windows: Download from https://github.com/UB-Mannheim/tesseract/releases")
+    print("  macOS: brew install tesseract")
+    print("  Linux: sudo apt-get install tesseract-ocr")
+    return False
+
 def setup_autostart():
     if os.name != 'nt':
         print("Auto-start is Windows-only.")
@@ -52,6 +88,12 @@ def main():
     
     install_python_if_needed()
     install_packages()
+    
+    # Check Tesseract before proceeding
+    if not check_tesseract():
+        print("\n[CRITICAL] Tesseract OCR is mandatory for this application.")
+        input("Please install Tesseract and re-run this script. Press Enter to exit...")
+        sys.exit(1)
     
     # Non-interactive: autostart can be enabled via environment variable or CLI flag
     import argparse

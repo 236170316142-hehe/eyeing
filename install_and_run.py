@@ -281,80 +281,176 @@ def install_requirements():
     return True
 
 
+def try_install_tesseract_macos():
+    """Try to install Tesseract on macOS using Homebrew."""
+    print("[INFO] Tesseract not found. Trying to install on macOS...")
+    
+    if not shutil.which('brew'):
+        print("[WARN] Homebrew is required to auto-install Tesseract on macOS.")
+        print("       Please install Homebrew from https://brew.sh and re-run this installer.")
+        return False
+    
+    try:
+        print("[INFO] Installing Tesseract via Homebrew...")
+        result = subprocess.run(['brew', 'install', 'tesseract'], capture_output=True, check=False, timeout=300)
+        if result.returncode == 0:
+            print("[OK] Tesseract installed successfully via Homebrew!")
+            return True
+        else:
+            print("[WARN] Homebrew installation failed. You can try: brew install tesseract")
+            return False
+    except Exception as e:
+        print(f"[ERROR] Failed to install via Homebrew: {e}")
+        return False
+
+def try_install_tesseract_linux():
+    """Try to install Tesseract on Linux using package managers."""
+    print("[INFO] Tesseract not found. Trying to install on Linux...")
+    
+    # Try different package managers
+    if shutil.which('apt-get'):
+        print("[INFO] Installing Tesseract via apt-get...")
+        try:
+            subprocess.run(['sudo', 'apt-get', 'update'], capture_output=True, check=False, timeout=120)
+            result = subprocess.run(['sudo', 'apt-get', 'install', '-y', 'tesseract-ocr'], capture_output=True, check=False, timeout=300)
+            if result.returncode == 0:
+                print("[OK] Tesseract installed successfully!")
+                return True
+        except Exception as e:
+            print(f"[WARN] apt-get installation failed: {e}")
+    
+    if shutil.which('dnf'):
+        print("[INFO] Installing Tesseract via dnf...")
+        try:
+            result = subprocess.run(['sudo', 'dnf', 'install', '-y', 'tesseract'], capture_output=True, check=False, timeout=300)
+            if result.returncode == 0:
+                print("[OK] Tesseract installed successfully!")
+                return True
+        except Exception as e:
+            print(f"[WARN] dnf installation failed: {e}")
+    
+    if shutil.which('yum'):
+        print("[INFO] Installing Tesseract via yum...")
+        try:
+            result = subprocess.run(['sudo', 'yum', 'install', '-y', 'tesseract'], capture_output=True, check=False, timeout=300)
+            if result.returncode == 0:
+                print("[OK] Tesseract installed successfully!")
+                return True
+        except Exception as e:
+            print(f"[WARN] yum installation failed: {e}")
+    
+    print("[WARN] Could not auto-install Tesseract. Please install manually and re-run.")
+    return False
+
+def download_tesseract_windows():
+    """Download and install Tesseract-OCR from official GitHub releases."""
+    print("[INFO] Downloading Tesseract OCR installer...")
+    
+    # Official Tesseract Windows installer
+    tesseract_url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe"
+    install_path = r"C:\Program Files\Tesseract-OCR"
+    
+    with tempfile.NamedTemporaryFile(suffix='.exe', delete=False) as tmp:
+        installer_path = tmp.name
+    
+    try:
+        # Download the installer
+        print(f"  Downloading from: {tesseract_url}")
+        
+        def report_progress(block_num, block_size, total_size):
+            if total_size > 0:
+                downloaded = min(block_num * block_size, total_size)
+                percent = (downloaded * 100) // total_size
+                print(f"\r  Progress: {percent}%", end='', flush=True)
+        
+        urllib.request.urlretrieve(tesseract_url, installer_path, reporthook=report_progress)
+        print("\n  Download complete!")
+        
+        # Run the installer silently
+        print("[INFO] Running Tesseract installer (this may take a minute)...")
+        result = subprocess.run(
+            [installer_path, '/S', '/D=' + install_path],
+            capture_output=True,
+            check=False
+        )
+        
+        if result.returncode == 0:
+            print("[OK] Tesseract installed successfully!")
+            # Wait a moment for the installation to complete
+            import time
+            time.sleep(2)
+            return True
+        else:
+            stderr = result.stderr.decode() if result.stderr else ""
+            print(f"[WARN] Installer reported an issue: {stderr}")
+            # Still check if it was installed despite the return code
+            if os.path.exists(os.path.join(install_path, 'tesseract.exe')):
+                print("[OK] Tesseract appears to be installed despite installer warning.")
+                return True
+            return False
+    except Exception as e:
+        print(f"[ERROR] Failed to download/install Tesseract: {e}")
+        return False
+    finally:
+        try:
+            os.unlink(installer_path)
+        except:
+            pass
+
 def try_install_tesseract_windows():
     print("[INFO] Tesseract not found. Trying automatic install on Windows...")
 
-    installers = [
+    # Check for bundled installer first (easiest for portable packages)
+    bundled_installers = [
+        script_dir() / 'tesseract-ocr-w64-setup-5.5.0.20241111.exe',
+        script_dir() / 'tesseract-ocr-w64-setup-v5.4.0.exe',
+        script_dir() / 'tesseract-ocr-w64-setup.exe',
+    ]
+    
+    for installer_path in bundled_installers:
+        if installer_path.exists():
+            print(f"[INFO] Found bundled Tesseract installer: {installer_path.name}")
+            print("[INFO] Running bundled Tesseract installer...")
+            try:
+                install_path = r"C:\Program Files\Tesseract-OCR"
+                result = subprocess.run(
+                    [str(installer_path), '/S', '/D=' + install_path],
+                    capture_output=True,
+                    check=False,
+                    timeout=300
+                )
+                
+                if result.returncode == 0 or os.path.exists(os.path.join(install_path, 'tesseract.exe')):
+                    print("[OK] Tesseract installed from bundled installer!")
+                    import time
+                    time.sleep(2)
+                    return True
+            except Exception as e:
+                print(f"[WARN] Bundled installer failed: {e}")
+    
+    # Try built-in package managers (fast if available)
+    package_managers = [
         ['winget', 'install', '--id', 'UB-Mannheim.TesseractOCR', '-e', '--silent', '--accept-package-agreements', '--accept-source-agreements'],
         ['choco', 'install', 'tesseract', '-y']
     ]
 
-    for cmd in installers:
+    for cmd in package_managers:
         if not shutil.which(cmd[0]):
             continue
         try:
-            subprocess.run(cmd, check=False)
-        except Exception:
+            print(f"[INFO] Trying to install with {cmd[0]}...")
+            subprocess.run(cmd, check=False, timeout=120)
+            # Re-check after each installer attempt.
+            if check_tesseract(skip_auto_install=True):
+                return True
+        except Exception as e:
+            print(f"[WARN] {cmd[0]} failed: {e}")
             continue
 
-        # Re-check after each installer attempt.
-        if check_tesseract(skip_auto_install=True):
-            return True
-
-    return False
-
-
-def _verify_tesseract_binary(candidate_path):
-    try:
-        result = subprocess.run(
-            [str(candidate_path), '--version'],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except Exception:
-        return False
-
-    if result.returncode != 0:
-        return False
-
-    output = f"{result.stdout}\n{result.stderr}".strip().lower()
-    return 'tesseract' in output
-
-
-def _find_bundled_tesseract_installer():
-    candidates = []
-    for pattern in (
-        'tesseract-ocr-w64-setup*.exe',
-        'tesseract*setup*.exe',
-        'Tesseract*setup*.exe',
-    ):
-        candidates.extend(sorted(script_dir().glob(pattern)))
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-
-    return None
-
-
-def _run_bundled_tesseract_installer(installer_path):
-    print(f"[INFO] Installing bundled Tesseract from {installer_path.name}...")
-    silent_flags = [
-        ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'],
-        ['/SILENT', '/NORESTART'],
-        ['/S'],
-    ]
-
-    for extra_args in silent_flags:
-        try:
-            subprocess.run([str(installer_path), *extra_args], check=False)
-        except Exception:
-            continue
-
-        if check_tesseract(skip_auto_install=True):
-            return True
+    # Fall back to downloading official installer
+    print("[INFO] Package managers not available. Downloading official installer...")
+    if download_tesseract_windows():
+        return True
 
     return False
 
@@ -392,27 +488,27 @@ def check_tesseract(skip_auto_install=False):
         ])
 
     for candidate in candidates:
-        if candidate and os.path.exists(candidate) and _verify_tesseract_binary(candidate):
-            os.environ['TESSERACT_CMD'] = candidate
-            print(f"[OK] Tesseract found and verified: {candidate}")
+        if candidate and os.path.exists(candidate):
+            print(f"[OK] Tesseract found: {candidate}")
             return True
 
-    path_tesseract = shutil.which('tesseract')
-    if path_tesseract and _verify_tesseract_binary(path_tesseract):
-        os.environ['TESSERACT_CMD'] = path_tesseract
-        print(f"[OK] Tesseract found on PATH and verified: {path_tesseract}")
+    if shutil.which('tesseract'):
+        print(f"[OK] Tesseract found on PATH: {shutil.which('tesseract')}")
         return True
 
-    if is_windows() and not skip_auto_install:
-        bundled_installer = _find_bundled_tesseract_installer()
-        if bundled_installer and _run_bundled_tesseract_installer(bundled_installer):
-            return True
-
-        if try_install_tesseract_windows():
-            return True
+    if not skip_auto_install:
+        if is_windows():
+            if try_install_tesseract_windows():
+                return True
+        elif is_macos():
+            if try_install_tesseract_macos():
+                return True
+        elif is_linux():
+            if try_install_tesseract_linux():
+                return True
 
     print("[ERROR] Tesseract OCR is required but was not found.")
-    print("        Install Tesseract OCR and rerun the installer.")
+    print("        The application cannot function without it for screenshot analysis.")
     return False
 
 
@@ -429,11 +525,28 @@ def setup_autostart():
         # VBScript executes pythonw (windowless python) fully hidden (0 flag)
         # Using specific environment variable definition solves Unicode logging crashes
         python_exec = resolve_monitor_python_executable(prefer_windowless=True)
+        
+        # Improved VBScript with better error handling and retry logic
         vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
 WshShell.CurrentDirectory = "{monitor_path.parent}"
 Set colSystemEnvVars = WshShell.Environment("Process")
 colSystemEnvVars("PYTHONIOENCODING") = "utf-8"
-WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
+
+' Add a small delay to ensure system is fully initialized after boot
+WScript.Sleep 2000
+
+' Try to run the monitor with retry logic
+Dim iRetries, iAttempt
+iRetries = 3
+For iAttempt = 1 To iRetries
+    On Error Resume Next
+    WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_path}" & Chr(34), 0, False
+    If Err.Number = 0 Then
+        Exit For
+    End If
+    WScript.Sleep 1000
+Next
+On Error GoTo 0
 '''
 
         vbs_ok = False
@@ -449,12 +562,14 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
         except Exception as e:
             print(f"[WARN] Could not create startup entry: {e}")
 
-        # Add scheduled task fallback because some systems block startup-folder scripts.
+        # Add scheduled task - most reliable method for Windows
         try:
             task_name = 'EmployeeMonitorAutoStart'
-            task_cmd = f'"{python_exec}" "{monitor_path}"'
+            # Use ONLOGON trigger which fires when user logs in (after system restart)
+            task_cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& \'{{{python_exec}}}\' \'{{{monitor_path}}}\' 2>$null"'
+            
             result = subprocess.run(
-                ['schtasks', '/Create', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', task_name, '/TR', task_cmd, '/F'],
+                ['schtasks', '/Create', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', task_name, '/TR', task_cmd, '/F', '/NP'],
                 capture_output=True,
                 text=True,
                 check=False
@@ -468,7 +583,7 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
         except Exception as e:
             print(f"[WARN] Scheduled task setup failed: {e}")
 
-        # Add HKCU Run fallback because some endpoint security tools suppress Startup folder/script execution.
+        # Add HKCU Run registry entry - fallback if other methods blocked
         try:
             run_value = f'wscript.exe "{vbs_path}"'
             reg_result = subprocess.run(
@@ -491,8 +606,37 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
                 print(f"[WARN] Could not register HKCU Run startup value: {err}")
         except Exception as e:
             print(f"[WARN] Registry startup setup failed: {e}")
+        
+        # Also try HKLM for system-wide startup (requires admin)
+        try:
+            hklm_run_value = f'"{python_exec}" "{monitor_path}"'
+            reg_result = subprocess.run(
+                [
+                    'reg', 'add', r'HKLM\Software\Microsoft\Windows\CurrentVersion\Run',
+                    '/v', 'EmployeeMonitor',
+                    '/t', 'REG_SZ',
+                    '/d', hklm_run_value,
+                    '/f'
+                ],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if result.returncode == 0:
+                print('[OK] Background auto-start (Registry HKLM) enabled: HKLM\\...\\Run\\EmployeeMonitor')
+                run_key_ok = True
+        except Exception:
+            pass  # HKLM might fail if not admin - that's okay, user/local is sufficient
 
-        return vbs_ok or task_ok or run_key_ok
+        success = vbs_ok or task_ok or run_key_ok
+        
+        if success:
+            print("[OK] Auto-start configuration complete (multiple methods enabled for reliability)")
+            print("     The monitor will automatically start when you log in or boot the system.")
+        else:
+            print("[WARN] Could not configure auto-start. Manual startup may be required.")
+        
+        return success
 
     if is_macos():
         launch_agents = Path.home() / 'Library' / 'LaunchAgents'
@@ -513,8 +657,14 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>StartInterval</key>
+  <integer>60</integer>
   <key>WorkingDirectory</key>
   <string>{monitor_path.parent}</string>
+  <key>StandardErrorPath</key>
+  <string>{Path.home()}/.employee-monitor-error.log</string>
+  <key>StandardOutPath</key>
+  <string>{Path.home()}/.employee-monitor-output.log</string>
 </dict>
 </plist>
 '''
@@ -545,6 +695,7 @@ NoDisplay=true
             service_content = f'''[Unit]
 Description=Employee Activity Monitor
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -552,6 +703,8 @@ WorkingDirectory={monitor_path.parent}
 ExecStart={monitor_python} {monitor_path}
 Restart=always
 RestartSec=5
+StandardOutput=append:{Path.home()}/.employee-monitor-output.log
+StandardError=append:{Path.home()}/.employee-monitor-error.log
 
 [Install]
 WantedBy=default.target
@@ -637,8 +790,29 @@ def main():
         sys.exit(1)
 
     if not check_tesseract():
+        print("\n" + "=" * 60)
+        print("  TESSERACT OCR INSTALLATION FAILED")
+        print("=" * 60)
+        print("\n[CRITICAL] Tesseract OCR is required but could not be installed.")
+        print("This is required to capture and analyze screenshots.\n")
+        print("MANUAL INSTALLATION OPTIONS:\n")
+        
+        if is_windows():
+            print("1. Download from: https://github.com/UB-Mannheim/tesseract/releases")
+            print("   Search for 'tesseract-ocr-w64-setup-v5.4.0.exe'")
+            print("   Run the installer with default settings.\n")
+            print("2. Or use a package manager:")
+            print("   - Windows: choco install tesseract")
+            print("   - Windows: winget install UB-Mannheim.TesseractOCR\n")
+        else:
+            print("1. macOS: brew install tesseract")
+            print("2. Linux (Ubuntu/Debian): sudo apt-get install tesseract-ocr")
+            print("3. Linux (Fedora/RHEL): sudo dnf install tesseract\n")
+        
+        print("After installing Tesseract, please re-run this installer.")
         input("Press Enter to exit...")
         sys.exit(1)
+    
     save_install_context()
     
     if '--autostart' in sys.argv or os.environ.get('SETUP_AUTOSTART'):

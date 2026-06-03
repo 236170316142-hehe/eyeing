@@ -21,6 +21,15 @@ def ensure_dependencies():
         print("Installing dependencies...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
+def check_tesseract_installed():
+    """Check if Tesseract is installed and accessible."""
+    try:
+        import pytesseract
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
 def read_config():
     if CONFIG_FILE.exists():
         try:
@@ -56,6 +65,14 @@ def onboarding():
 def main():
     ensure_dirs()
     ensure_dependencies()
+    
+    # Check for Tesseract
+    if not check_tesseract_installed():
+        print("\n[ERROR] Tesseract OCR is not installed!")
+        print("Please run 'install_and_run.py' first to install Tesseract.")
+        print("Tesseract is required for screenshot analysis functionality.")
+        sys.exit(1)
+    
     onboarding()
     # Start monitor in headless mode by default
     cmd = [sys.executable, os.path.abspath("monitor.py")]

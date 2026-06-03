@@ -115,11 +115,26 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
         *   Installs Python (if missing).
         *   Installs all Python libraries.
         *   Installs/validates Tesseract OCR.
+        *   Configures auto-start for system restart.
         *   Triggers the **Onboarding Popup**.
-6.  **Onboarding:**
+6.  **Verify Installation (Windows only):**
+    *   After installation, verify Tesseract is working:
+        ```powershell
+        python verify_tesseract.py
+        ```
+    *   Verify autostart will work on system restart:
+        ```powershell
+        python verify_autostart.py
+        ```
+    *   Both scripts will show detailed reports with status checks.
+7.  **Onboarding:**
     *   The employee fills in their `Employee ID`, `Company ID`, `Org Name`, and `User ID`.
     *   Once they click "Complete Setup," the monitor starts instantly.
-7.  **Stealth Mode:**
+8.  **Test Autostart:**
+    *   **Windows:** Restart the computer and verify the monitor starts automatically
+    *   **macOS:** Log out and log back in, or restart the computer
+    *   **Linux:** Log out and log back in, or restart the computer
+9.  **Stealth Mode:**
     *   The folder will automatically become **Hidden** and marked as a **System File**.
     *   **Deletion Protection** is applied (Windows will block any attempt to delete the folder).
     *   A startup trigger is added to hiddenly launch the monitor every time the PC boots.
@@ -139,9 +154,117 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
 ---
 
 ## 🛠 Troubleshooting
+
+### ✅ Verification Tools
+Use these scripts to diagnose issues:
+
+**Check Tesseract Installation:**
+```powershell
+python verify_tesseract.py
+```
+- Verifies Tesseract executable is found
+- Tests Tesseract functionality
+- Tests pytesseract module
+- Tests OCR with a sample image
+- Provides detailed installation instructions if issues found
+
+**Check Autostart Configuration (Windows):**
+```powershell
+python verify_autostart.py
+```
+- Verifies monitor.py exists
+- Checks Python availability
+- Verifies VBS startup script
+- Checks Task Scheduler configuration
+- Checks Registry entries (HKCU and HKLM)
+- Reports on which autostart methods are active
+
+---
+
+### ⚠️ CRITICAL: Tesseract-OCR Issues
+Tesseract OCR is **essential** - the application will not work without it for screenshot analysis and processing.
+
+**If you see errors about Tesseract:**
+1. **Run the verification script first:**
+   ```powershell
+   python verify_tesseract.py
+   ```
+
+2. **Windows Installation Issues:**
+   - The installer should auto-download and install from GitHub to `C:\Program Files\Tesseract-OCR`
+   - If it fails or uses bundled installer:
+     ```powershell
+     python tesseract-ocr-w64-setup-5.5.0.20241111.exe /S /D="C:\Program Files\Tesseract-OCR"
+     ```
+   - Manually download: https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe
+   - Run installer with default settings to `C:\Program Files\Tesseract-OCR`
+   - If antivirus blocked the installation, whitelist Tesseract-OCR and retry
+   - After manual installation, re-run installer:
+     ```powershell
+     python install_and_run.py --autostart
+     ```
+
+3. **macOS & Linux:** 
+   - macOS: `brew install tesseract` then re-run installer
+   - Linux (Ubuntu/Debian): `sudo apt-get install tesseract-ocr`
+   - Linux (Fedora/RHEL): `sudo dnf install tesseract`
+   - Then re-run the installer
+
+4. **Environment variable fallback:**
+   If Tesseract is installed in a non-standard location:
+   ```batch
+   REM Windows
+   set TESSERACT_CMD=C:\Custom\Path\tesseract.exe
+   python install_and_run.py
+   ```
+   ```bash
+   # Linux/macOS
+   export TESSERACT_CMD=/custom/path/tesseract
+   python install_and_run.py
+   ```
+
+---
+
+### 🔄 Autostart Not Working (Monitor Doesn't Start on Restart)
+
+**Windows:**
+1. Verify autostart configuration:
+   ```powershell
+   python verify_autostart.py
+   ```
+
+2. If it reports failures, re-run installation with admin privileges:
+   ```powershell
+   python install_and_run.py --autostart
+   ```
+
+3. Check for antivirus interference:
+   - Whitelist Tesseract-OCR and Python in your antivirus
+   - Check antivirus policy for startup script blocking
+
+4. Manual autostart setup (if all else fails):
+   - Press `Win+R`, type `shell:startup`
+   - Create a shortcut to: `pythonw.exe "path\to\monitor.py"`
+
+5. Test autostart:
+   - Save your work
+   - Restart the computer
+   - Check if monitor is running (check `activity_data/activity_monitor.log`)
+
+**macOS:**
+- Verify LaunchAgent exists: `ls -la ~/Library/LaunchAgents/com.eyeing.monitor.plist`
+- Check logs: `log stream --predicate 'eventMessage contains "employee-monitor"'`
+- Reload: `launchctl load ~/Library/LaunchAgents/com.eyeing.monitor.plist`
+
+**Linux:**
+- Check systemd service: `systemctl --user status employee-monitor.service`
+- Check logs: `journalctl --user-unit employee-monitor.service -n 50`
+- Manually reload: `systemctl --user daemon-reload && systemctl --user restart employee-monitor.service`
+
+---
+
+### Other Issues
 -   **No Popup?** Ensure `activity_data/config.json` was deleted before moving files to the new PC.
 -   **Data not reaching DB?** Ensure your hosted backend is reachable and `backend_url.txt` in the package points to the live host.
--   **OCR issues?** The script installs Tesseract to `C:\Program Files\Tesseract-OCR`. Ensure this wasn't blocked by antivirus.
--   **Not running after restart (Windows)?** Re-run `install.bat` once as the same user, then reboot. Installer now creates Startup VBS, Scheduled Task, and HKCU Run-key fallback.
 -   **Folder not hidden (Windows)?** Installer now applies `attrib +h +s` to the package folder and all child files/folders recursively.
 -   **Still not showing in admin?** Check local crash log at `activity_data/monitor_startup_crash.log` and `activity_monitor.log` in the installed package folder.

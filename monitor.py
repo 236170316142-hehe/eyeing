@@ -482,18 +482,29 @@ class ActivityMonitor:
                     'Tracking will continue without screenshots.'
                 )
             else:
-                raise SystemExit(
-                    'Missing required OCR dependencies: ' + ', '.join(missing) + '. Install requirements.txt and Tesseract OCR.'
-                )
+                error_msg = 'Missing required OCR dependencies: ' + ', '.join(missing) + '.\n'
+                if 'pytesseract' in missing:
+                    error_msg += 'ERROR: Tesseract OCR is required but not installed.\n'
+                    error_msg += 'This is critical - the application cannot function without Tesseract for screenshot analysis.\n'
+                    error_msg += 'Please run install_and_run.py again to install Tesseract.\n'
+                error_msg += 'Install all requirements.txt dependencies and Tesseract OCR.'
+                raise SystemExit(error_msg)
 
         try:
             pytesseract.pytesseract.tesseract_cmd = _resolve_tesseract_command()
             self.log.info(f"Tesseract engine linked: {pytesseract.pytesseract.tesseract_cmd}")
         except Exception as exc:
-            raise SystemExit(
-                'Tesseract OCR is required but was not found. Install it and ensure the executable is available. '
-                f'Details: {exc}'
+            error_msg = (
+                'CRITICAL: Tesseract OCR executable was not found.\n'
+                'Tesseract is required for screenshot analysis and cannot be bypassed.\n'
+                'Please ensure Tesseract-OCR is installed at one of these locations:\n'
+                '  - Windows: C:\\Program Files\\Tesseract-OCR\\tesseract.exe\n'
+                '  - macOS: /usr/local/bin/tesseract (or /opt/homebrew/bin/tesseract)\n'
+                '  - Linux: /usr/bin/tesseract\n'
+                'Or set TESSERACT_CMD environment variable.\n'
+                f'Original error: {exc}'
             )
+            raise SystemExit(error_msg)
 
     def _persist_local_config(self):
         try:

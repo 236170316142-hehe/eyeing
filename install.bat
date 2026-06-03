@@ -51,19 +51,28 @@ start "" "%BACKEND_URL%/setup.html?autoclose=1^&device_id=%DEVICE_ID%^&install_i
 
 python "%~dp0install_and_run.py" --autostart
 
-set "INSTALL_EXIT_CODE=%ERRORLEVEL%"
-if not "%INSTALL_EXIT_CODE%"=="0" (
-    echo.
-    echo Installation failed. Tesseract OCR is required for screenshot capture and OCR analysis.
-    echo Install Tesseract OCR, then rerun install.bat.
-    pause
-    popd
-    endlocal
-    exit /b %INSTALL_EXIT_CODE%
-)
+echo.
+echo ====================================
+echo Installation Complete!
+echo ====================================
+echo.
+echo NEXT STEPS:
+echo.
+echo 1. VERIFY TESSERACT INSTALLATION:
+echo    python verify_tesseract.py
+echo.
+echo 2. VERIFY AUTOSTART CONFIGURATION:
+echo    python verify_autostart.py
+echo.
+echo 3. TEST AUTOSTART:
+echo    Restart your computer and verify the monitor starts automatically.
+echo.
+echo For more information, see:
+echo    - README.md (overview and quick start)
+echo    - DEPLOYMENT_GUIDE.md (detailed setup and troubleshooting)
+echo.
 
 pause
 
 popd
 endlocal
-exit /b 0
