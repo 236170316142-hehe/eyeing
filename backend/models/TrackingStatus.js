@@ -13,6 +13,7 @@ const trackingStatusSchema = new mongoose.Schema({
   queued_local_report_count: { type: Number, default: 0 },
   last_device_id: { type: String, default: '' },
   last_install_id: { type: String, default: '' },
+  uninstall_requested_at: { type: Date, default: null },
   decommission_requested_at: { type: Date, default: null },
   last_updated_by: { type: String, default: 'admin' }
 }, { timestamps: true });

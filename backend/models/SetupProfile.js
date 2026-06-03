@@ -15,6 +15,7 @@ const setupProfileSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 setupProfileSchema.index({ install_id: 1 }, { unique: true, sparse: true });
+setupProfileSchema.index({ device_id: 1 }, { unique: true, sparse: true });
 setupProfileSchema.index({ device_id: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('SetupProfile', setupProfileSchema);
