@@ -1,0 +1,157 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║         EMPLOYEE MONITOR - DEPLOYMENT QUICK REFERENCE CARD                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ SINGLE COMPUTER ─────────────────────────────────────────────────────────┐
+│                                                                            │
+│  Usage: First installation on one computer                               │
+│  Time: 15 minutes (first time), 2-3 minutes (if Python installed)       │
+│                                                                            │
+│  Command:                                                                 │
+│    deploy_automated.bat                                                   │
+│                                                                            │
+│  What it does:                                                            │
+│    ✓ Install/check Python 3.12                                           │
+│    ✓ Install all Python packages                                         │
+│    ✓ Install/verify Tesseract-OCR                                        │
+│    ✓ Configure autostart (multiple methods)                              │
+│    ✓ Run verification tests                                              │
+│    ✓ Prompt for system restart                                           │
+│                                                                            │
+│  Next steps after completion:                                            │
+│    1. Restart computer                                                    │
+│    2. Verify monitor starts automatically                                │
+│    3. Check: activity_data\activity_monitor.log                          │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─ MULTIPLE COMPUTERS (2-10 PCs) ───────────────────────────────────────────┐
+│                                                                            │
+│  Usage: Deploy to multiple computers                                     │
+│  Time: 5 min prep + 10 min per computer                                  │
+│                                                                            │
+│  Command:                                                                 │
+│    deploy_to_multiple_pcs.bat                                             │
+│                                                                            │
+│  Menu Options:                                                            │
+│                                                                            │
+│    Option 1: USB Deployment (Most Reliable)                              │
+│    ────────────────────────────────────────                              │
+│    1. Run on source computer                                             │
+│    2. Select: 1 (USB)                                                    │
+│    3. Enter USB drive letter: E                                          │
+│    4. Copy E:\EmployeeMonitor to target computers                        │
+│    5. On each target: E:\EmployeeMonitor\deploy_automated.bat            │
+│                                                                            │
+│    Option 2: Network Deployment (Fast)                                   │
+│    ─────────────────────────────────                                     │
+│    1. Run on source computer                                             │
+│    2. Select: 2 (Network)                                                │
+│    3. Enter network path: \\SERVER\Share                                  │
+│    4. On each target: net use Z: \\SERVER\Share                          │
+│    5. On each target: Z:\EmployeeMonitor_...\deploy_automated.bat        │
+│                                                                            │
+│    Option 3: Manual Instructions                                          │
+│    ────────────────────────────                                          │
+│    1. Select: 3 (Manual)                                                 │
+│    2. Follow displayed step-by-step instructions                         │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─ ENTERPRISE DEPLOYMENT (10+ PCs) ─────────────────────────────────────────┐
+│                                                                            │
+│  Usage: Deploy to many computers automatically                           │
+│  Time: 30 min setup + 8-10 min per computer                              │
+│                                                                            │
+│  Command:                                                                 │
+│    deploy_powershell.bat                                                  │
+│                                                                            │
+│  Features:                                                                │
+│    ✓ Remote deployment via PowerShell                                    │
+│    ✓ Batch processing multiple computers                                 │
+│    ✓ Automatic validation after deployment                               │
+│    ✓ Detailed logging                                                    │
+│    ✓ Network credentials support                                         │
+│    ✓ Deployment reports                                                  │
+│                                                                            │
+│  Example workflow:                                                        │
+│    1. Run: deploy_powershell.bat                                         │
+│    2. Select: 2 (Deploy to multiple)                                     │
+│    3. Enter computers: PC-001, PC-002, PC-003                            │
+│    4. Enter credentials                                                  │
+│    5. Automated deployment to all computers                              │
+│    6. Automatic validation on each                                       │
+│    7. View report                                                        │
+│                                                                            │
+│  Requirements:                                                            │
+│    • Network access to target computers                                  │
+│    • Admin privileges on target computers                                │
+│    • PowerShell Remoting enabled                                         │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─ VERIFICATION TOOLS ──────────────────────────────────────────────────────┐
+│                                                                            │
+│  After any deployment, always run:                                       │
+│                                                                            │
+│  1. Verify Tesseract:                                                    │
+│     python verify_tesseract.py                                           │
+│     Expected: All tests PASS ✓                                           │
+│                                                                            │
+│  2. Verify Autostart:                                                    │
+│     python verify_autostart.py                                           │
+│     Expected: At least 2/3 methods active ✓                              │
+│                                                                            │
+│  3. Test Autostart:                                                      │
+│     Restart computer → Monitor should start automatically                │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─ TROUBLESHOOTING ─────────────────────────────────────────────────────────┐
+│                                                                            │
+│  Python Not Installing?                                                  │
+│    → Run as Administrator                                                │
+│    → Check internet connection                                           │
+│    → Install manually from python.org                                    │
+│                                                                            │
+│  Tesseract Not Installing?                                               │
+│    → Run: python verify_tesseract.py (shows detailed errors)             │
+│    → Check bundled installer exists                                      │
+│    → Download manually from GitHub                                       │
+│                                                                            │
+│  Autostart Not Working?                                                  │
+│    → Run: python verify_autostart.py                                     │
+│    → Re-run: deploy_automated.bat (as Administrator)                     │
+│    → Check antivirus settings                                            │
+│    → Restart computer                                                    │
+│                                                                            │
+│  For more help:                                                           │
+│    See: DEPLOYMENT_AUTOMATION_GUIDE.md                                    │
+│    See: DEPLOYMENT_GUIDE.md                                               │
+│    Run: python QUICK_START.py                                            │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─ SUMMARY ─────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  Computers  │  Tool                      │  Time        │  Complexity    │
+│  ───────────┼────────────────────────────┼──────────────┼────────────────│
+│  1          │ deploy_automated.bat       │ 15 min       │ ⭐ Easy        │
+│  2-10       │ deploy_to_multiple_pcs.bat │ 5+10min/PC   │ ⭐⭐ Medium    │
+│  10+        │ deploy_powershell.bat      │ 30+10min/PC  │ ⭐⭐⭐ Hard    │
+│                                                                            │
+│  Best Practice:                                                           │
+│  1. Always test on one computer first                                    │
+│  2. Use USB for offline deployments                                      │
+│  3. Use network share for LAN deployments                                │
+│  4. Use PowerShell for enterprise deployments                            │
+│  5. Always verify after deployment                                       │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Version: 1.0 | Date: June 2024 | Support: See DEPLOYMENT_AUTOMATION_GUIDE.md
