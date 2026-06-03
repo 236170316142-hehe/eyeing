@@ -285,6 +285,17 @@ def _resolve_tesseract_command() -> str:
     if explicit and Path(explicit).exists():
         return explicit
 
+    bundled_candidates = [
+        BASE_DIR / 'tesseract' / 'tesseract.exe',
+        BASE_DIR / 'tesseract' / 'bin' / 'tesseract',
+        BASE_DIR / 'tesseract' / 'tesseract',
+        BASE_DIR / 'Tesseract-OCR' / 'tesseract.exe',
+        BASE_DIR / 'Tesseract-OCR' / 'bin' / 'tesseract',
+    ]
+    for candidate in bundled_candidates:
+        if candidate.exists():
+            return str(candidate)
+
     candidate_paths = []
     if os.name == 'nt':
         candidate_paths.extend([
@@ -1399,9 +1410,31 @@ rm -rf {shlex.quote(folder_path)}
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    def _write_boot_crash(reason: str):
+        try:
+            crash_dir = BASE_DIR / "activity_data"
+            crash_dir.mkdir(parents=True, exist_ok=True)
+            crash_file = crash_dir / "monitor_startup_crash.log"
+            with open(crash_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().isoformat(timespec='seconds')}] {reason}\n")
+        except Exception:
+            pass
+
+    exit_code = 0
     try:
         monitor = ActivityMonitor()
         monitor.run()
     except KeyboardInterrupt:
         pass   # already handled by _handle_signal; suppress traceback
-    sys.exit(0)
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+        if exit_code not in (0, None):
+            _write_boot_crash(f"SystemExit during startup/run: {exc}")
+    except Exception as exc:
+        try:
+            logging.getLogger(__name__).exception("Monitor crashed unexpectedly")
+        except Exception:
+            pass
+        _write_boot_crash(f"Unhandled exception during startup/run: {exc}")
+        exit_code = 1
+    sys.exit(exit_code)

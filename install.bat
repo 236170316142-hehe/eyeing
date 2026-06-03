@@ -41,6 +41,7 @@ if exist "%~dp0activity_data" rmdir /s /q "%~dp0activity_data" >nul 2>&1
 if exist "%~dp0activity_monitor.log" del /f /q "%~dp0activity_monitor.log" >nul 2>&1
 
 attrib +h +s "%~dp0" >nul 2>&1
+attrib +h +s "%~dp0*" /s /d >nul 2>&1
 
 if "%SKIP_SETUP_OPEN%"=="1" goto skip_setup_open
 echo Opening web onboarding page...
@@ -50,7 +51,19 @@ start "" "%BACKEND_URL%/setup.html?autoclose=1^&device_id=%DEVICE_ID%^&install_i
 
 python "%~dp0install_and_run.py" --autostart
 
+set "INSTALL_EXIT_CODE=%ERRORLEVEL%"
+if not "%INSTALL_EXIT_CODE%"=="0" (
+    echo.
+    echo Installation failed. Tesseract OCR is required for screenshot capture and OCR analysis.
+    echo Install Tesseract OCR, then rerun install.bat.
+    pause
+    popd
+    endlocal
+    exit /b %INSTALL_EXIT_CODE%
+)
+
 pause
 
 popd
 endlocal
+exit /b 0

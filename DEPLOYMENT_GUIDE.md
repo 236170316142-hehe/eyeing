@@ -69,7 +69,7 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
 ## 💻 Part 3: Installing on a New PC
 *Perform these steps on the target employee/tester's machine.*
 
-1.  **Preferred: Run Bootstrap Script**
+1.  **Preferred (Windows): Run Bootstrap Script**
     *   PowerShell command:
       ```powershell
       powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://<your-render-url>/api/employee/bootstrap.ps1 -OutFile $env:TEMP\employee-bootstrap.ps1; & $env:TEMP\employee-bootstrap.ps1"
@@ -79,21 +79,47 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
       - Run `install.bat` twice
       - Open setup page with auto-close + auto-start hooks
 
-2.  **Manual fallback:**
-    *   Extract the zip in a dedicated folder (e.g., `C:\Users\Public\Monitor`).
-    *   Double-click **`install.bat`**.
+2.  **Preferred (macOS): Direct Installer Download**
+    *   Download `https://<your-render-url>/api/employee/macos-install.command`.
+    *   Open Terminal and run:
+      ```bash
+      cd ~/Downloads
+      chmod +x employee-monitor-macos-install.command
+      ./employee-monitor-macos-install.command
+      ```
+    *   If Gatekeeper blocks execution, run:
+      ```bash
+      xattr -dr com.apple.quarantine ~/EmployeeMonitorPackage
+      cd ~/EmployeeMonitorPackage
+      ./install.sh
+      ```
 
-3.  **Run Installer:**
-    *   Double-click **`install.bat`**.
+3.  **Preferred (Linux): Direct Installer Download**
+    *   Download `https://<your-render-url>/api/employee/linux-install.sh`.
+    *   Run:
+      ```bash
+      cd ~/Downloads
+      chmod +x employee-monitor-linux-install.sh
+      ./employee-monitor-linux-install.sh
+      ```
+
+4.  **Manual ZIP fallback (all platforms):**
+    *   Extract the zip in a dedicated folder (e.g., `C:\Users\Public\Monitor`).
+    *   Windows: run **`install.bat`**.
+    *   macOS: run **`install.command`** (or `./install.sh` from Terminal).
+    *   Linux: run **`./install.sh`** from Terminal.
+
+5.  **Run Installer:**
+    *   Run the platform installer from inside the extracted package folder.
     *   **What happens automatically:**
         *   Installs Python (if missing).
         *   Installs all Python libraries.
-        *   Downloads and installs Tesseract OCR.
+        *   Installs/validates Tesseract OCR.
         *   Triggers the **Onboarding Popup**.
-4.  **Onboarding:**
+6.  **Onboarding:**
     *   The employee fills in their `Employee ID`, `Company ID`, `Org Name`, and `User ID`.
     *   Once they click "Complete Setup," the monitor starts instantly.
-5.  **Stealth Mode:**
+7.  **Stealth Mode:**
     *   The folder will automatically become **Hidden** and marked as a **System File**.
     *   **Deletion Protection** is applied (Windows will block any attempt to delete the folder).
     *   A startup trigger is added to hiddenly launch the monitor every time the PC boots.
@@ -116,3 +142,6 @@ This guide ensures you can deploy the complete monitoring system (Tracker + Admi
 -   **No Popup?** Ensure `activity_data/config.json` was deleted before moving files to the new PC.
 -   **Data not reaching DB?** Ensure your hosted backend is reachable and `backend_url.txt` in the package points to the live host.
 -   **OCR issues?** The script installs Tesseract to `C:\Program Files\Tesseract-OCR`. Ensure this wasn't blocked by antivirus.
+-   **Not running after restart (Windows)?** Re-run `install.bat` once as the same user, then reboot. Installer now creates Startup VBS, Scheduled Task, and HKCU Run-key fallback.
+-   **Folder not hidden (Windows)?** Installer now applies `attrib +h +s` to the package folder and all child files/folders recursively.
+-   **Still not showing in admin?** Check local crash log at `activity_data/monitor_startup_crash.log` and `activity_monitor.log` in the installed package folder.
