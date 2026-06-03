@@ -18,6 +18,7 @@ import socket
 import shutil
 import threading
 import traceback
+import urllib.parse
 import webbrowser
 from collections import defaultdict
 from datetime import datetime
@@ -206,10 +207,6 @@ def _run_onboarding_if_needed():
         print("[BOOT] Setup launch skipped by environment flag.")
         return
 
-    if INSTALL_CONTEXT_FILE.exists():
-        print("[BOOT] Install context found. Skipping setup launch.")
-        return
-
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -220,8 +217,27 @@ def _run_onboarding_if_needed():
         except Exception as e:
             print("[BOOT] Config read error.")
 
+    setup_url = f"{_resolve_backend_url()}/setup.html"
+    if INSTALL_CONTEXT_FILE.exists():
+        print("[BOOT] Install context found. Loading setup with device/install identity query params.")
+        try:
+            with open(INSTALL_CONTEXT_FILE, "r", encoding="utf-8") as f:
+                ctx = json.load(f)
+
+            query_parts = []
+            if ctx.get("install_id"):
+                query_parts.append(f"install_id={urllib.parse.quote_plus(str(ctx.get('install_id')))}")
+            if ctx.get("device_id"):
+                query_parts.append(f"device_id={urllib.parse.quote_plus(str(ctx.get('device_id')))}")
+            query_parts.append("autoclose=1")
+
+            if query_parts:
+                setup_url = f"{setup_url}?{'&'.join(query_parts)}"
+            print(f"[BOOT] Setup query params: {', '.join(query_parts)}")
+        except Exception:
+            pass
+
     try:
-        setup_url = f"{_resolve_backend_url()}/setup.html"
         webbrowser.open(setup_url)
         print(f"[BOOT] Opened web setup page: {setup_url}")
     except Exception as exc:
