@@ -51,6 +51,36 @@ function getLocalDateString(date = new Date()) {
   return local.toISOString().slice(0, 10);
 }
 
+function shiftDateString(dateString, deltaDays) {
+  const [year, month, day] = String(dateString || '').split('-').map(Number);
+  if (!year || !month || !day) return getLocalDateString();
+
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + Number(deltaDays || 0));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function isGreetingOnlyMessage(message) {
+  const normalized = String(message || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+
+  return /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)( there)?$/.test(normalized);
+}
+
+function resolveChatTargetDate(message, requestedDate) {
+  const explicitDate = normalizeIdentity(requestedDate);
+  if (explicitDate) return explicitDate;
+
+  const normalized = String(message || '').toLowerCase();
+  const today = getLocalDateString();
+
+  if (/\bday before yesterday\b/.test(normalized)) return shiftDateString(today, -2);
+  if (/\byesterday\b/.test(normalized)) return shiftDateString(today, -1);
+  if (/\btoday\b/.test(normalized)) return today;
+
+  return null;
+}
+
 function normalizeIdentity(value) {
   return String(value || '').trim();
 }
@@ -1757,37 +1787,96 @@ app.post('/api/admin/update-interval', async (req, res) => {
 // 9. Admin Performance Chatbot (NVIDIA RAG)
 app.post('/api/admin/chat', async (req, res) => {
   try {
-    const { message, company_id, user_id } = req.body;
+    const { message, company_id, user_id, date } = req.body;
     const NV_KEY = process.env.LLM_API_KEY || process.env.NVIDIA_API_KEY;
 
     if (!NV_KEY || NV_KEY.includes('YOUR-KEY-HERE')) {
       return res.status(400).json({ error: "NVIDIA API Key not configured in .env" });
     }
 
+    if (isGreetingOnlyMessage(message)) {
+      return res.json({
+        answer: 'Hello. Ask me about a user or company performance, and I can summarize today, yesterday, or another specific date.'
+      });
+    }
+
+    const targetDate = resolveChatTargetDate(message, date);
+
     // 1. Fetch performance context
     let context = "";
     if (user_id && company_id) {
       const designation = await getUserDesignation(company_id, user_id);
-      // User-specific aggregation (Lifetime)
-      const stats = await Report.aggregate([
-        { $match: { company_id, user_id } },
-        { $group: {
-            _id: null,
-            total_active: { $sum: "$time_active_sec" },
-            total_idle: { $sum: "$time_idle_sec" },
-            total_keys: { $sum: "$keyboard_key_presses" },
-            total_clicks: { $sum: "$mouse_clicks" },
-            top_apps: { $push: "$active_app" }
-        }}
-      ]);
+      const reportFilter = { company_id, user_id };
+      let reports = [];
+      let daySummary = '';
 
-      const lifetime = stats[0] || {};
-      const logs = dedupeReportsBySignature(await Report.find({ company_id, user_id }).sort({ timestamp: -1 }).limit(20));
-      const appCounts = (lifetime.top_apps || []).reduce((acc, a) => { acc[a] = (acc[a] || 0) + 1; return acc; }, {});
-      const top3Apps = Object.entries(appCounts).sort((a,b) => b[1] - a[1]).slice(0,3).map(x => x[0]).join(', ');
+      if (targetDate) {
+        const dayBounds = buildDayBounds(targetDate);
+        reports = dedupeReportsBySignature(await Report.aggregate([
+          { $match: reportFilter },
+          {
+            $addFields: {
+              eventAt: {
+                $ifNull: [
+                  { $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null } },
+                  '$createdAt'
+                ]
+              }
+            }
+          },
+          { $match: { eventAt: { $gte: dayBounds.start, $lte: dayBounds.end } } },
+          { $sort: { eventAt: 1, createdAt: 1 } }
+        ]));
 
-      context = `FOCUS USER: ${user_id} (@ ${company_id})
-      DESIGNATION: ${designation || 'Not specified'}
+        if (reports.length) {
+          const totalActive = reports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0);
+          const totalIdle = reports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0);
+          const totalKeys = reports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
+          const totalClicks = reports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
+          const appCounts = reports.reduce((acc, report) => {
+            const app = String(report.active_app || '').trim() || 'Unknown';
+            acc[app] = (acc[app] || 0) + 1;
+            return acc;
+          }, {});
+          const top3Apps = Object.entries(appCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([app]) => app).join(', ');
+
+          daySummary = `
+      TARGET DATE: ${targetDate}
+      DAILY SUMMARY:
+      - Active: ${Math.round(totalActive / 60)}m, Idle: ${Math.round(totalIdle / 60)}m
+      - Total Inputs: ${totalKeys} keys, ${totalClicks} clicks
+      - Top Apps: ${top3Apps || 'N/A'}
+      
+      DAILY ACTIVITY SAMPLE:
+      ${reports.map(report => `- ${report.timestamp}: ${report.active_app} (${report.window_title})`).join('\n')}`;
+        } else {
+          daySummary = `
+      TARGET DATE: ${targetDate}
+      DAILY ACTIVITY SAMPLE:
+      No activity logs were found for this date.`;
+        }
+      }
+
+      if (!daySummary) {
+        // User-specific aggregation (Lifetime)
+        const stats = await Report.aggregate([
+          { $match: reportFilter },
+          { $group: {
+              _id: null,
+              total_active: { $sum: "$time_active_sec" },
+              total_idle: { $sum: "$time_idle_sec" },
+              total_keys: { $sum: "$keyboard_key_presses" },
+              total_clicks: { $sum: "$mouse_clicks" },
+              top_apps: { $push: "$active_app" }
+          }}
+        ]);
+
+        const lifetime = stats[0] || {};
+        const logs = dedupeReportsBySignature(await Report.find(reportFilter).sort({ timestamp: -1 }).limit(20));
+        const appCounts = (lifetime.top_apps || []).reduce((acc, a) => { acc[a] = (acc[a] || 0) + 1; return acc; }, {});
+        const top3Apps = Object.entries(appCounts).sort((a,b) => b[1] - a[1]).slice(0,3).map(x => x[0]).join(', ');
+
+        daySummary = `
       LIFETIME SUMMARY:
       - Active: ${Math.round((lifetime.total_active || 0)/60)}m, Idle: ${Math.round((lifetime.total_idle || 0)/60)}m
       - Total Inputs: ${lifetime.total_keys || 0} keys, ${lifetime.total_clicks || 0} clicks
@@ -1795,6 +1884,10 @@ app.post('/api/admin/chat', async (req, res) => {
       
       RECENT ACTIVITY SAMPLE:
       ${logs.map(l => `- ${l.timestamp}: ${l.active_app} (${l.window_title})`).join('\n')}`;
+      }
+
+      context = `FOCUS USER: ${user_id} (@ ${company_id})
+      DESIGNATION: ${designation || 'Not specified'}${daySummary}`;
     } else {
       // Global Company Aggregation
       const stats = await Report.aggregate([
