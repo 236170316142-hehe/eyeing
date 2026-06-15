@@ -2929,11 +2929,13 @@ app.post('/api/admin/push-update', requireAdminAuth, async (req, res) => {
   }
 });
 
-// Admin: cancel a pending update (before any tracker has confirmed it)
+// Admin: cancel a pending update — supports company_id only, user_id only, or both
 app.post('/api/admin/cancel-update', requireAdminAuth, async (req, res) => {
   try {
-    const { company_id } = req.body;
-    const filter = company_id ? { company_id: String(company_id).trim() } : {};
+    const { company_id, user_id } = req.body;
+    const filter = {};
+    if (company_id) filter.company_id = String(company_id).trim();
+    if (user_id)    filter.user_id    = String(user_id).trim();
     const result = await TrackingStatus.updateMany(filter, {
       $set: {
         'pending_update.version': null,
@@ -2945,6 +2947,22 @@ app.post('/api/admin/cancel-update', requireAdminAuth, async (req, res) => {
     res.json({ message: `Update cancelled for ${result.modifiedCount} tracker(s).`, modified: result.modifiedCount });
   } catch (error) {
     console.error('[-] Error cancelling update:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Admin: fully erase a decommissioned phantom record (removes TrackingStatus too)
+app.post('/api/admin/erase-user', requireAdminAuth, async (req, res) => {
+  try {
+    const { company_id, user_id } = req.body;
+    if (!company_id || !user_id) {
+      return res.status(400).json({ error: 'Missing company_id or user_id.' });
+    }
+    const counts = await purgeTrackerArtifacts(String(company_id).trim(), String(user_id).trim(), { removeTrackingStatus: true });
+    console.log(`[Admin] ERASED record for ${user_id} @ ${company_id} — ${JSON.stringify(counts)}`);
+    res.json({ ok: true, counts });
+  } catch (error) {
+    console.error('[-] Error erasing user:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });

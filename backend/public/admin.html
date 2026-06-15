@@ -190,6 +190,13 @@
     .btn-push-update:hover { background: rgba(16, 185, 129, 0.28); }
     .btn-push-update:disabled { opacity: 0.35; cursor: not-allowed; }
 
+    .btn-cancel-update { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 700; }
+    .btn-cancel-update:hover { background: rgba(245, 158, 11, 0.28); }
+    .btn-cancel-update:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .btn-erase-record { background: rgba(239, 68, 68, 0.22); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.5); font-weight: 700; }
+    .btn-erase-record:hover { background: rgba(239, 68, 68, 0.38); }
+
     .health-stack {
       display: grid;
       gap: 4px;
@@ -1552,11 +1559,16 @@
                 <button onclick="rejectUninstall('${t.company_id}', '${t.user_id}', this, ${isPendingUninstall ? 'true' : 'false'})" class="btn-action btn-decommission" ${isPendingUninstall ? '' : 'disabled'}>
                    ❌ ${isPendingUninstall ? 'Reject request' : 'Await request'}
                 </button>
-                <button onclick="pushUpdateForUser('${t.company_id}', '${t.user_id}', this)" class="btn-action btn-push-update" ${isDecom ? 'disabled' : ''} title="Push latest files to this device now">
-                   🔄 Update
+                <button onclick="${isPendingUpdate ? `cancelUpdateForUser('${t.company_id}','${t.user_id}',this)` : `pushUpdateForUser('${t.company_id}','${t.user_id}',this)`}"
+                        class="btn-action ${isPendingUpdate ? 'btn-cancel-update' : 'btn-push-update'}"
+                        ${isDecom ? 'disabled' : ''}
+                        title="${isPendingUpdate ? 'Cancel this pending update (clears the stuck badge)' : 'Push latest files to this device now'}">
+                   ${isPendingUpdate ? '✕ Cancel Update' : '🔄 Update'}
                 </button>
-                <button onclick="forceDeleteUser('${t.company_id}', '${t.user_id}', this)" class="btn-action btn-force-delete" ${isDecom ? 'disabled' : ''} title="Immediately delete all cloud data and wipe files from the device">
-                   🗑 Delete User
+                <button onclick="${isDecom ? `eraseDecomUser('${t.company_id}','${t.user_id}',this)` : `forceDeleteUser('${t.company_id}','${t.user_id}',this)`}"
+                        class="btn-action ${isDecom ? 'btn-erase-record' : 'btn-force-delete'}"
+                        title="${isDecom ? 'Permanently remove this record from the database' : 'Immediately delete all cloud data and wipe files from the device'}">
+                   ${isDecom ? '🗑 Erase Record' : '🗑 Delete User'}
                 </button>
               </div>
             </td>
@@ -2032,6 +2044,54 @@
         showToast(`Update failed: ${err.message}`);
         btn.disabled = false;
         btn.textContent = '🔄 Update';
+      }
+    }
+
+    // ── Cancel pending update for a single user ───────────────────────────────
+    async function cancelUpdateForUser(compId, userId, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳…';
+      try {
+        const response = await fetch('/api/admin/cancel-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Cancel failed');
+        showToast(`Update cancelled for ${userId}.`);
+        await loadTrackers();
+      } catch (err) {
+        showToast(`Cancel failed: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = '✕ Cancel Update';
+      }
+    }
+
+    // ── Erase already-decommissioned phantom record from DB ───────────────────
+    async function eraseDecomUser(compId, userId, btn) {
+      if (!confirm(
+        `ERASE RECORD: ${userId} (${compId})\n\n` +
+        `This permanently removes the database entry.\n` +
+        `The device (if it ever comes online) will simply get a fresh "not found" response.\n\n` +
+        `Cannot be undone. Continue?`
+      )) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ Erasing…';
+      try {
+        const response = await fetch('/api/admin/erase-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: compId, user_id: userId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Erase failed');
+        showToast(`Record for ${userId} erased.`);
+        await loadTrackers();
+      } catch (err) {
+        showToast(`Erase failed: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = '🗑 Erase Record';
       }
     }
 
