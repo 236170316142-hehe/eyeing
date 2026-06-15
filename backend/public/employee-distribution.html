@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Package Distribution</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #070d17;
+      --panel: rgba(15, 23, 42, 0.78);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --muted: #9ca3af;
+      --primary: #2563eb;
+      --accent: #06b6d4;
+      --good: #10b981;
+      --enterprise: #a855f7;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Outfit', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(6, 182, 212, 0.20), transparent 35%),
+        radial-gradient(circle at 100% 100%, rgba(37, 99, 235, 0.24), transparent 30%),
+        linear-gradient(180deg, #03070f, var(--bg));
+      padding: 28px;
+      display: grid;
+      place-items: center;
+    }
+
+    .shell {
+      width: min(1100px, 100%);
+      border-radius: 24px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      backdrop-filter: blur(14px);
+    }
+
+    .hero {
+      padding: 28px 32px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    h1 { margin: 0; font-size: 2rem; }
+    .subtitle { margin-top: 8px; color: var(--muted); line-height: 1.5; }
+
+    .badge {
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
+    }
+
+    .detected-os {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(37, 99, 235, 0.35);
+      background: rgba(37, 99, 235, 0.12);
+      color: #bfdbfe;
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+
+    .body {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 0;
+    }
+
+    .left, .right { padding: 28px 32px; }
+    .right { border-left: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+
+    .section-label {
+      margin: 22px 0 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .section-label:first-of-type { margin-top: 0; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .actions.single-row {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .btn {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      text-decoration: none;
+      font-weight: 700;
+      padding: 13px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+      text-align: center;
+      font-size: 0.92rem;
+    }
+
+    .btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.08); }
+    .btn.primary { background: linear-gradient(135deg, var(--primary), #1d4ed8); border-color: rgba(37, 99, 235, 0.55); }
+    .btn.accent { background: linear-gradient(135deg, var(--accent), #0e7490); border-color: rgba(6, 182, 212, 0.55); }
+    .btn.enterprise {
+      background: linear-gradient(135deg, var(--enterprise), #7c3aed);
+      border-color: rgba(168, 85, 247, 0.55);
+      grid-column: 1 / -1;
+    }
+    .btn.recommended {
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.45);
+    }
+    .btn.secondary {
+      font-size: 0.85rem;
+      padding: 11px 12px;
+    }
+
+    .block {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .block h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: #bfdbfe;
+    }
+
+    .block p { margin: 0; color: var(--muted); line-height: 1.5; }
+
+    ol { margin: 8px 0 0 18px; color: var(--muted); line-height: 1.8; }
+
+    code {
+      display: block;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(2, 6, 23, 0.6);
+      color: #cbd5e1;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .note {
+      margin-top: 14px;
+      color: #fcd34d;
+      font-size: 0.83rem;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 940px) {
+      .body { grid-template-columns: 1fr; }
+      .right { border-left: 0; border-top: 1px solid var(--border); }
+      .actions, .actions.single-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>Employee Installer Distribution</h1>
+        <p class="subtitle">Download the latest live build for Windows, macOS, or Linux. Each ZIP is generated from the Render backend so employees always get the current package and backend URL.</p>
+        <div class="detected-os" id="detectedOs">Detecting your operating system...</div>
+      </div>
+      <div class="badge">Ready for employee handoff</div>
+    </section>
+
+    <section class="body">
+      <div class="left">
+        <div class="section-label">Standard OS packages</div>
+        <p style="margin:0; color: var(--muted);">Pick the ZIP that matches the employee's OS. Windows packages include <strong>deploy_automated.bat</strong> for full automated setup.</p>
+
+        <div class="actions single-row" id="osZipActions">
+          <a class="btn accent" data-os="macos" href="/api/employee/macos.zip">Download macOS ZIP</a>
+          <a class="btn" data-os="linux" href="/api/employee/linux.zip">Download Linux ZIP</a>
+          <a class="btn primary" data-os="windows" href="/api/employee/windows.zip">Download Windows ZIP</a>
+        </div>
+
+        <div class="section-label">Enterprise multi-OS package</div>
+        <p style="margin:0; color: var(--muted);">For IT rollout across mixed fleets. Includes all OS launchers plus multi-PC deployment tools. Run <strong>install_enterprise.bat</strong> on Windows, or <strong>install.command</strong> / <strong>install.sh</strong> on macOS/Linux; each auto-configures the detected OS.</p>
+
+        <div class="actions">
+          <a class="btn enterprise" data-os="enterprise" href="/api/employee/enterprise.zip">Download Enterprise ZIP (Windows + macOS + Linux + Multi-PC tools)</a>
+        </div>
+
+        <div class="section-label">Direct installers (no manual unzip)</div>
+        <p style="margin:0; color: var(--muted);">One-click bootstrap scripts that download the correct package and run the automated installer.</p>
+
+        <div class="actions single-row" id="directInstallActions">
+          <a class="btn secondary" data-os="windows" href="/api/employee/bootstrap.ps1">Windows Direct Installer (.ps1)</a>
+          <a class="btn secondary" data-os="macos" href="/api/employee/macos-install.command">macOS Direct Installer (.command)</a>
+          <a class="btn secondary" data-os="linux" href="/api/employee/linux-install.sh">Linux Direct Installer (.sh)</a>
+        </div>
+
+        <div class="block">
+          <h3>Live package contents</h3>
+          <p>
+            <strong>Windows:</strong> <code style="display:inline;padding:2px 6px;margin:0;">deploy_automated.bat</code> (automated setup), <code style="display:inline;padding:2px 6px;margin:0;">install.bat</code> (entry point).<br>
+            <strong>macOS / Linux:</strong> <code style="display:inline;padding:2px 6px;margin:0;">install.sh</code> (auto-detects OS and package manager), plus <code style="display:inline;padding:2px 6px;margin:0;">install.command</code> on macOS.<br>
+            <strong>Enterprise:</strong> all of the above plus <code style="display:inline;padding:2px 6px;margin:0;">install_enterprise.bat</code>, <code style="display:inline;padding:2px 6px;margin:0;">deploy_to_multiple_pcs.bat</code>, and PowerShell multi-PC tools.
+          </p>
+        </div>
+
+        <div class="note">
+          ZIPs are generated live from the Render deployment. A fresh download always includes the latest monitor code and backend URL.
+        </div>
+      </div>
+
+      <aside class="right">
+        <h2 style="margin:0 0 8px;">Expected Setup Flow</h2>
+        <ol>
+          <li>Download the ZIP for the employee's OS, or use a Direct Installer button.</li>
+          <li>Run the included launcher: <strong>deploy_automated.bat</strong> (Windows), <strong>install.command</strong> (macOS), or <strong>install.sh</strong> (Linux). Enterprise Windows: <strong>install_enterprise.bat</strong>.</li>
+          <li>Complete the browser setup page if prompted.</li>
+          <li>Save the employee profile.</li>
+          <li>The monitor starts and stays tied to the live backend.</li>
+        </ol>
+
+        <div class="block" style="margin-top: 16px;">
+          <h3>Windows bootstrap (PowerShell)</h3>
+          <p>Run this on a target PC to download and auto-install:</p>
+          <code id="windowsBootstrapCmd">powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing {{ORIGIN}}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\employee-bootstrap.ps1; & $env:TEMP\employee-bootstrap.ps1"</code>
+        </div>
+
+        <div class="block" style="margin-top: 16px;">
+          <h3>Setup URL</h3>
+          <p>Direct setup page:</p>
+          <code id="setupUrl">{{ORIGIN}}/setup.html?autoclose=1</code>
+        </div>
+
+        <div class="block" style="margin-top: 16px;">
+          <h3>If macOS blocks install.command</h3>
+          <p>Open Terminal in the extracted folder and run:</p>
+          <code>xattr -dr com.apple.quarantine .
+chmod +x install.sh install.command
+./install.sh</code>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const origin = window.location.origin;
+    document.getElementById('setupUrl').textContent = `${origin}/setup.html?autoclose=1`;
+    document.getElementById('windowsBootstrapCmd').textContent =
+      `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\employee-bootstrap.ps1; & $env:TEMP\\employee-bootstrap.ps1"`;
+
+    function detectOs() {
+      const ua = navigator.userAgent || '';
+      const platform = navigator.platform || '';
+      if (/Win/i.test(platform) || /Windows/i.test(ua)) return 'windows';
+      if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) return 'macos';
+      if (/Linux/i.test(platform) || /X11/i.test(ua)) return 'linux';
+      return null;
+    }
+
+    const detected = detectOs();
+    const osLabels = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+    const detectedEl = document.getElementById('detectedOs');
+
+    if (detected) {
+      detectedEl.innerHTML = `Detected OS: <strong>${osLabels[detected]}</strong>; the matching download is highlighted below. For IT teams deploying to mixed fleets, use the Enterprise ZIP.`;
+      document.querySelectorAll('[data-os]').forEach((el) => {
+        if (el.dataset.os === detected) {
+          el.classList.add('recommended');
+        }
+      });
+    } else {
+      detectedEl.textContent = 'Could not detect your OS automatically. Choose the ZIP that matches the employee\'s platform, or use the Enterprise ZIP for mixed deployments.';
+    }
+  </script>
+</body>
+</html>

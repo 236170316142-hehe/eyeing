@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Monitor – Download & Install</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #081120;
+      --panel: rgba(15,23,42,0.78);
+      --border: rgba(255,255,255,0.08);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --accent: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(59,130,246,0.18), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(16,185,129,0.12), transparent 30%),
+        linear-gradient(180deg, #050a14, var(--bg));
+      min-height: 100vh;
+      padding: 32px 16px 64px;
+    }
+
+    .wrap {
+      max-width: 780px;
+      margin: 0 auto;
+      display: grid;
+      gap: 24px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      padding: 32px 24px 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      backdrop-filter: blur(18px);
+    }
+
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 55ch;
+      margin: 0 auto 18px;
+    }
+
+    /* OS detection badge */
+    .os-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      background: rgba(59,130,246,0.14);
+      border: 1px solid rgba(59,130,246,0.28);
+      color: #bfdbfe;
+    }
+
+    .os-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ── Download card ── */
+    .dl-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    .dl-card-head {
+      padding: 22px 28px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .os-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      flex-shrink: 0;
+    }
+
+    .os-icon.win  { background: rgba(59,130,246,0.15); }
+    .os-icon.mac  { background: rgba(16,185,129,0.15); }
+    .os-icon.lin  { background: rgba(245,158,11,0.15); }
+
+    .dl-meta h2 { font-size: 1.25rem; }
+    .dl-meta p  { color: var(--muted); font-size: 0.9rem; margin-top: 2px; }
+
+    .dl-body {
+      padding: 24px 28px;
+      display: grid;
+      gap: 18px;
+    }
+
+    /* Download button */
+    .dl-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 16px 24px;
+      border-radius: 16px;
+      border: none;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      background: linear-gradient(135deg, var(--primary), #2563eb);
+      color: white;
+      box-shadow: 0 12px 30px rgba(59,130,246,0.28);
+      transition: opacity .2s, transform .15s;
+    }
+
+    .dl-btn:hover { opacity: .9; transform: translateY(-1px); }
+    .dl-btn:active { transform: translateY(0); }
+
+    .dl-btn svg { width: 20px; height: 20px; fill: none; stroke: white; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    .dl-info {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .dl-info-item {
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .dl-info-item .label { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
+    .dl-info-item .value { font-size: 0.88rem; font-weight: 500; }
+
+    /* ── Steps ── */
+    .steps-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      backdrop-filter: blur(18px);
+      padding: 26px 28px;
+    }
+
+    .steps-card h3 {
+      font-size: 1.1rem;
+      margin-bottom: 18px;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .step-item {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: rgba(59,130,246,0.16);
+      border: 1px solid rgba(59,130,246,0.3);
+      color: #93c5fd;
+      font-weight: 700;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-body { flex: 1; line-height: 1.55; padding-top: 4px; }
+    .step-body strong { color: var(--text); }
+    .step-body .muted { color: var(--muted); font-size: 0.88rem; display: block; margin-top: 2px; }
+
+    pre, code {
+      font-family: 'Courier New', monospace;
+      font-size: 0.82rem;
+    }
+
+    .code-block {
+      margin-top: 6px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #7dd3fc;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* ── Tesseract note ── */
+    .tess-note {
+      background: rgba(245,158,11,0.08);
+      border: 1px solid rgba(245,158,11,0.22);
+      border-radius: 14px;
+      padding: 14px 18px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: #fde68a;
+    }
+
+    .tess-note .icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+    /* ── Requirements card ── */
+    .req-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      backdrop-filter: blur(18px);
+      padding: 22px 28px;
+    }
+
+    .req-card h3 { font-size: 1rem; margin-bottom: 14px; }
+
+    .req-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+    }
+
+    .req-item {
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.85rem;
+    }
+
+    .req-item .req-label { color: var(--muted); font-size: 0.75rem; margin-bottom: 3px; }
+
+    /* ── Other OS fallback ── */
+    .other-os {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      backdrop-filter: blur(18px);
+      padding: 22px 28px;
+      text-align: center;
+    }
+
+    .other-os p { color: var(--muted); line-height: 1.6; margin-bottom: 16px; }
+
+    .other-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+    .ghost-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .2s;
+    }
+
+    .ghost-btn:hover { background: rgba(255,255,255,0.1); }
+
+    /* hide/show sections */
+    .os-section { display: none; }
+    .os-section.active { display: contents; }
+
+    @media (max-width: 560px) {
+      .dl-info { grid-template-columns: 1fr 1fr; }
+      .header h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- Header -->
+    <header class="header">
+      <h1>Employee Monitor</h1>
+      <p>Download and install the activity monitor for your operating system. The installer handles everything automatically — Python, Tesseract OCR, and autostart.</p>
+      <div class="os-badge">
+        <span class="dot"></span>
+        <span id="detectedOsLabel">Detecting your OS…</span>
+      </div>
+    </header>
+
+    <!-- ════════ WINDOWS ════════ -->
+    <div class="os-section" id="section-windows">
+      <div class="dl-card">
+        <div class="dl-card-head">
+          <div class="os-icon win">🪟</div>
+          <div class="dl-meta">
+            <h2>Windows Package</h2>
+            <p>Includes Tesseract OCR 5.5.0 installer &amp; auto-setup</p>
+          </div>
+        </div>
+        <div class="dl-body">
+          <a class="dl-btn" id="winDownloadBtn" href="/api/employee/windows.zip" download>
+            <svg viewBox="0 0 24 24"><path d="M12 15l-4-4h2.5V5h3v6H16l-4 4z"/><path d="M5 19h14"/></svg>
+            Download for Windows (.zip)
+          </a>
+          <div class="dl-info">
+            <div class="dl-info-item">
+              <div class="label">Tesseract</div>
+              <div class="value">v5.5.0 bundled</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Python req.</div>
+              <div class="value">3.8+ (auto-installed)</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Architecture</div>
+              <div class="value">x64</div>
+            </div>
+          </div>
+          <div class="tess-note">
+            <span class="icon">⚡</span>
+            <span>The ZIP already contains <strong>tesseract-ocr-w64-setup-5.5.0.20241111.exe</strong>. The installer picks it up automatically — no separate download needed.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps-card">
+        <h3>Step-by-step installation — Windows</h3>
+        <div class="step-list">
+
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Download the ZIP above</strong>
+              <span class="muted">Click the blue button. Your browser will save <code>eyeing-windows.zip</code> to your Downloads folder.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Extract the ZIP</strong>
+              <span class="muted">Right-click the file → <em>Extract All…</em> and choose a destination such as <code>C:\eyeing\</code>. Keep all files together in the same folder.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Run <code>install.bat</code> as Administrator</strong>
+              <span class="muted">Right-click <code>install.bat</code> inside the extracted folder and choose <em>Run as administrator</em>. A terminal window will open.</span>
+              <div class="code-block">Right-click install.bat → Run as administrator</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Automatic installation (wait ~2 min)</strong>
+              <span class="muted">The installer will automatically:</span>
+              <div class="code-block">✓ Install Python 3.12 (if not present)
+✓ Install Tesseract OCR 5.5.0 silently
+✓ Install required Python packages
+✓ Configure autostart on login / boot
+✓ Hide the monitoring folder</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>Complete the web setup form</strong>
+              <span class="muted">A browser window will open automatically at <code>/setup.html</code>. Fill in Employee ID, Login Email, and Organisation details, then click <strong>Save Setup</strong>.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">6</div>
+            <div class="step-body">
+              <strong>Verify &amp; restart</strong>
+              <span class="muted">The monitor starts immediately in the background. Restarting your PC confirms that autostart is working.</span>
+              <div class="code-block">python verify_tesseract.py
+python verify_autostart.py</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /windows -->
+
+    <!-- ════════ macOS ════════ -->
+    <div class="os-section" id="section-mac">
+      <div class="dl-card">
+        <div class="dl-card-head">
+          <div class="os-icon mac">🍎</div>
+          <div class="dl-meta">
+            <h2>macOS Package</h2>
+            <p>Tesseract installed automatically via Homebrew</p>
+          </div>
+        </div>
+        <div class="dl-body">
+          <a class="dl-btn" id="macDownloadBtn" href="/api/employee/macos.zip" download>
+            <svg viewBox="0 0 24 24"><path d="M12 15l-4-4h2.5V5h3v6H16l-4 4z"/><path d="M5 19h14"/></svg>
+            Download for macOS (.zip)
+          </a>
+          <div class="dl-info">
+            <div class="dl-info-item">
+              <div class="label">Tesseract</div>
+              <div class="value">via Homebrew</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Python req.</div>
+              <div class="value">3.8+ required</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Architecture</div>
+              <div class="value">Apple Silicon &amp; Intel</div>
+            </div>
+          </div>
+          <div class="tess-note">
+            <span class="icon">🍺</span>
+            <span>The installer calls <code>brew install tesseract</code> automatically. If Homebrew is not installed, step 3 below shows how to get it first.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps-card">
+        <h3>Step-by-step installation — macOS</h3>
+        <div class="step-list">
+
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Download the ZIP above</strong>
+              <span class="muted">Click the blue button. macOS saves it to your <em>Downloads</em> folder.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Extract &amp; open Terminal</strong>
+              <span class="muted">Double-click the ZIP to extract it. Then open <em>Terminal</em> (Spotlight → <code>Terminal</code>).</span>
+              <div class="code-block">cd ~/Downloads/eyeing-mac</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Install Homebrew (if not already installed)</strong>
+              <span class="muted">Skip this step if <code>brew --version</code> already works.</span>
+              <div class="code-block">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</div>
+              <span class="muted" style="margin-top:6px;display:block;">After installing on Apple Silicon (M1/M2/M3), also run:</span>
+              <div class="code-block">echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/opt/homebrew/bin/brew shellenv)"</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Ensure Python 3.8+ is available</strong>
+              <span class="muted">macOS ships Python 3 since Ventura. To check:</span>
+              <div class="code-block">python3 --version</div>
+              <span class="muted" style="margin-top:4px;display:block;">If missing: <code>brew install python</code></span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>Run the installer</strong>
+              <span class="muted">This installs Tesseract via Homebrew, all Python packages, and sets up autostart via LaunchAgent.</span>
+              <div class="code-block">python3 install_and_run.py --autostart</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">6</div>
+            <div class="step-body">
+              <strong>Complete the web setup form</strong>
+              <span class="muted">A browser tab will open at <code>/setup.html</code>. Fill in your employee details and click <strong>Save Setup</strong>.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">7</div>
+            <div class="step-body">
+              <strong>Allow permissions when prompted</strong>
+              <span class="muted">macOS may ask for Screen Recording and Accessibility permissions. Grant both in <em>System Settings → Privacy &amp; Security</em> for the monitor to function.</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /mac -->
+
+    <!-- ════════ LINUX ════════ -->
+    <div class="os-section" id="section-linux">
+      <div class="dl-card">
+        <div class="dl-card-head">
+          <div class="os-icon lin">🐧</div>
+          <div class="dl-meta">
+            <h2>Linux Package</h2>
+            <p>Supports Ubuntu, Debian, Fedora, RHEL &amp; more</p>
+          </div>
+        </div>
+        <div class="dl-body">
+          <a class="dl-btn" id="linDownloadBtn" href="/api/employee/linux.zip" download>
+            <svg viewBox="0 0 24 24"><path d="M12 15l-4-4h2.5V5h3v6H16l-4 4z"/><path d="M5 19h14"/></svg>
+            Download for Linux (.zip)
+          </a>
+          <div class="dl-info">
+            <div class="dl-info-item">
+              <div class="label">Tesseract</div>
+              <div class="value">via apt / dnf / yum</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Python req.</div>
+              <div class="value">3.8+ required</div>
+            </div>
+            <div class="dl-info-item">
+              <div class="label">Autostart</div>
+              <div class="value">systemd &amp; desktop</div>
+            </div>
+          </div>
+          <div class="tess-note">
+            <span class="icon">📦</span>
+            <span>The installer auto-detects your package manager (<code>apt-get</code>, <code>dnf</code>, or <code>yum</code>) and installs Tesseract OCR without any manual steps.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps-card">
+        <h3>Step-by-step installation — Linux</h3>
+        <div class="step-list">
+
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Download the ZIP above</strong>
+              <span class="muted">Click the blue button or use the terminal:</span>
+              <div class="code-block">wget "https://eyeing.onrender.com/api/employee/linux.zip" -O eyeing-linux.zip</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Extract the ZIP</strong>
+              <div class="code-block">unzip linux.zip -d ~/eyeing
+cd ~/eyeing</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Ensure Python 3.8+ is installed</strong>
+              <div class="code-block"># Ubuntu / Debian
+sudo apt-get install -y python3 python3-pip unzip
+
+# Fedora / RHEL
+sudo dnf install -y python3 python3-pip unzip</div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Run the installer</strong>
+              <span class="muted">The script auto-installs Tesseract OCR and all Python dependencies, then registers a systemd user service and desktop autostart entry.</span>
+              <div class="code-block">python3 install_and_run.py --autostart</div>
+              <span class="muted" style="margin-top:4px;display:block;">The installer will call <code>sudo apt-get install tesseract-ocr</code> (or the equivalent for your distro). Enter your password when prompted.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>Complete the web setup form</strong>
+              <span class="muted">A browser tab opens at <code>/setup.html</code>. Fill in your employee details and click <strong>Save Setup</strong>.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">6</div>
+            <div class="step-body">
+              <strong>Confirm the service is running</strong>
+              <div class="code-block">systemctl --user status employee-monitor.service</div>
+              <span class="muted" style="margin-top:4px;display:block;">The monitor starts on login automatically. Restarting the PC confirms autostart works.</span>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num">7</div>
+            <div class="step-body">
+              <strong>Headless / server installs (optional)</strong>
+              <span class="muted">If the machine has no desktop session, register the system-wide service instead:</span>
+              <div class="code-block">cd linux
+bash setup_systemd.sh</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /linux -->
+
+    <!-- ════════ Unknown OS ════════ -->
+    <div class="os-section" id="section-unknown">
+      <div class="other-os">
+        <p>We couldn't automatically detect your operating system. Choose your platform below.</p>
+        <div class="other-btns">
+          <button class="ghost-btn" onclick="showOS('windows')">🪟 Windows</button>
+          <button class="ghost-btn" onclick="showOS('mac')">🍎 macOS</button>
+          <button class="ghost-btn" onclick="showOS('linux')">🐧 Linux</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Requirements -->
+    <div class="req-card">
+      <h3>System requirements</h3>
+      <div class="req-grid">
+        <div class="req-item">
+          <div class="req-label">Windows</div>
+          Windows 10 / 11, x64
+        </div>
+        <div class="req-item">
+          <div class="req-label">macOS</div>
+          macOS 12 Monterey+
+        </div>
+        <div class="req-item">
+          <div class="req-label">Linux</div>
+          Ubuntu 20.04+ / Fedora 36+ / Debian 11+
+        </div>
+        <div class="req-item">
+          <div class="req-label">Python</div>
+          3.8 or newer (auto-installed on Windows)
+        </div>
+        <div class="req-item">
+          <div class="req-label">Tesseract</div>
+          5.x (bundled on Windows, auto via pkg mgr on Mac/Linux)
+        </div>
+        <div class="req-item">
+          <div class="req-label">Disk space</div>
+          ~250 MB
+        </div>
+      </div>
+    </div>
+
+    <!-- Switch OS -->
+    <div class="other-os" style="text-align:center;padding:18px 24px;">
+      <p style="margin-bottom:12px;font-size:0.88rem;">Not the right platform?</p>
+      <div class="other-btns">
+        <button class="ghost-btn" onclick="showOS('windows')">🪟 Windows</button>
+        <button class="ghost-btn" onclick="showOS('mac')">🍎 macOS</button>
+        <button class="ghost-btn" onclick="showOS('linux')">🐧 Linux</button>
+      </div>
+    </div>
+
+  </div><!-- /wrap -->
+
+  <script>
+    const SECTIONS = ['windows','mac','linux','unknown'];
+
+    function showOS(os) {
+      SECTIONS.forEach(function(id) {
+        var el = document.getElementById('section-' + id);
+        if (el) el.classList.toggle('active', id === os);
+      });
+
+      var labels = {
+        windows: 'Detected OS: Windows',
+        mac:     'Detected OS: macOS',
+        linux:   'Detected OS: Linux',
+        unknown: 'OS not detected — choose below'
+      };
+      document.getElementById('detectedOsLabel').textContent = labels[os] || 'OS not detected';
+    }
+
+    function detectOS() {
+      var ua  = (navigator.userAgent || '').toLowerCase();
+      var plt = (navigator.platform  || '').toLowerCase();
+
+      if (plt.indexOf('win') !== -1 || ua.indexOf('windows') !== -1) return 'windows';
+      if (plt.indexOf('mac') !== -1 || ua.indexOf('macintosh') !== -1 || ua.indexOf('mac os x') !== -1) return 'mac';
+      if (plt.indexOf('linux') !== -1 || ua.indexOf('linux') !== -1 || ua.indexOf('x11') !== -1) return 'linux';
+      return 'unknown';
+    }
+
+    // Allow manual override via ?os=windows|mac|linux
+    (function init() {
+      var params = new URLSearchParams(window.location.search);
+      var forced = (params.get('os') || '').toLowerCase();
+      var os = (forced === 'windows' || forced === 'mac' || forced === 'linux') ? forced : detectOS();
+      showOS(os);
+    })();
+  </script>
+</body>
+</html>
