@@ -2590,10 +2590,11 @@ app.post('/api/admin/update-interval', async (req, res) => {
   }
 });
 
-// 9. Admin Performance Chatbot (NVIDIA RAG)
+// 9. Admin Performance Chatbot
 app.post('/api/admin/chat', async (req, res) => {
   try {
-    const { message, company_id, user_id, date } = req.body;
+    const { message, company_id, user_id, date, timezoneOffsetMinutes: tzRaw } = req.body;
+    const tzOffset = Number(tzRaw ?? 0);
     const NV_KEY = process.env.LLM_API_KEY || process.env.NVIDIA_API_KEY;
 
     if (!NV_KEY || NV_KEY.includes('YOUR-KEY-HERE')) {
@@ -2602,23 +2603,26 @@ app.post('/api/admin/chat', async (req, res) => {
 
     if (isGreetingOnlyMessage(message)) {
       return res.json({
-        answer: 'Hello. Ask me about a user or company performance, and I can summarize today, yesterday, or another specific date.'
+        answer: 'Hello! Ask me about a specific user\'s activity — for example: "How many hours did this user work today?" or "What apps were used most yesterday?"'
       });
     }
 
     const targetDate = resolveChatTargetDate(message, date);
 
-    // 1. Fetch performance context
-    let context = "";
+    // ── Build accurate context ──────────────────────────────────────────────
+    let context = '';
+
     if (user_id && company_id) {
       const designation = await getUserDesignation(company_id, user_id);
       const reportFilter = { company_id, user_id };
-      let reports = [];
-      let daySummary = '';
 
       if (targetDate) {
-        const dayBounds = buildDayBounds(targetDate);
-        reports = dedupeReportsBySignature(await Report.aggregate([
+        // Use the CORRECT timezone-aware day bounds (same logic as the report viewer)
+        const dayBounds = buildDayBounds(targetDate, tzOffset);
+
+        // Fetch ALL reports for the day — do NOT deduplicate before aggregating
+        // (dedup removes legitimate reports and produces wildly wrong totals)
+        const allReports = await Report.aggregate([
           { $match: reportFilter },
           {
             $addFields: {
@@ -2632,121 +2636,193 @@ app.post('/api/admin/chat', async (req, res) => {
           },
           { $match: { eventAt: { $gte: dayBounds.start, $lte: dayBounds.end } } },
           { $sort: { eventAt: 1, createdAt: 1 } }
-        ]));
+        ]);
 
-        if (reports.length) {
-          const totalActive = reports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0);
-          const totalIdle = reports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0);
-          const totalKeys = reports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
-          const totalClicks = reports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
-          const appCounts = reports.reduce((acc, report) => {
-            const app = String(report.active_app || '').trim() || 'Unknown';
-            acc[app] = (acc[app] || 0) + 1;
-            return acc;
-          }, {});
-          const top3Apps = Object.entries(appCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([app]) => app).join(', ');
+        // Deduplicate only for display / sample (NOT for metric computation)
+        const uniqueReports = dedupeReportsBySignature(allReports);
 
-          daySummary = `
-      TARGET DATE: ${targetDate}
-      DAILY SUMMARY:
-      - Active: ${Math.round(totalActive / 60)}m, Idle: ${Math.round(totalIdle / 60)}m
-      - Total Inputs: ${totalKeys} keys, ${totalClicks} clicks
-      - Top Apps: ${top3Apps || 'N/A'}
-      
-      DAILY ACTIVITY SAMPLE:
-      ${reports.map(report => `- ${report.timestamp}: ${report.active_app} (${report.window_title})`).join('\n')}`;
+        if (uniqueReports.length === 0) {
+          context = `FOCUS USER: ${user_id} (@ ${company_id})
+DESIGNATION: ${designation || 'Not specified'}
+DATE: ${targetDate}
+No activity logs found for this date.`;
         } else {
-          daySummary = `
-      TARGET DATE: ${targetDate}
-      DAILY ACTIVITY SAMPLE:
-      No activity logs were found for this date.`;
-        }
-      }
+          // ── Accurate metrics from ALL (non-deduped) reports ──────────────
+          const totalActiveSec = allReports.reduce((s, r) => s + Number(r.time_active_sec  || 0), 0);
+          const totalIdleSec   = allReports.reduce((s, r) => s + Number(r.time_idle_sec    || 0), 0);
+          const totalKeys      = allReports.reduce((s, r) => s + Number(r.keyboard_key_presses || 0), 0);
+          const totalClicks    = allReports.reduce((s, r) => s + Number(r.mouse_clicks     || 0), 0);
 
-      if (!daySummary) {
-        // User-specific aggregation (Lifetime)
+          const fmtSec = (sec) => `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+
+          // ── Work span: first → last activity timestamp ───────────────────
+          const firstTs = uniqueReports[0].eventAt || uniqueReports[0].timestamp;
+          const lastTs  = uniqueReports[uniqueReports.length - 1].eventAt || uniqueReports[uniqueReports.length - 1].timestamp;
+          const spanMin = (firstTs && lastTs)
+            ? Math.round((new Date(lastTs) - new Date(firstTs)) / 60000)
+            : null;
+          const spanStr = spanMin !== null
+            ? `${Math.floor(spanMin / 60)}h ${spanMin % 60}m  (${new Date(firstTs).toLocaleTimeString()} → ${new Date(lastTs).toLocaleTimeString()})`
+            : 'N/A';
+
+          // ── Hourly breakdown ─────────────────────────────────────────────
+          const hourBuckets = {};
+          for (const r of allReports) {
+            const ts = r.eventAt;
+            if (ts) {
+              const h = new Date(ts).getHours();
+              if (!hourBuckets[h]) hourBuckets[h] = { reports: 0, activeSec: 0 };
+              hourBuckets[h].reports++;
+              hourBuckets[h].activeSec += Number(r.time_active_sec || 0);
+            }
+          }
+          const hourlyLines = Object.entries(hourBuckets)
+            .sort((a, b) => Number(a[0]) - Number(b[0]))
+            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 — ${d.reports} reports, ${Math.round(d.activeSec/60)}m active`)
+            .join('\n');
+
+          // ── Top apps by time ─────────────────────────────────────────────
+          const appSecs = {};
+          for (const r of allReports) {
+            const app = String(r.active_app || '').trim() || 'Unknown';
+            appSecs[app] = (appSecs[app] || 0) + Number(r.time_active_sec || 0);
+          }
+          const topApps = Object.entries(appSecs)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([app, sec]) => `  - ${app}: ${Math.round(sec / 60)}m active`)
+            .join('\n');
+
+          // ── Recent sample (last 10 unique events for qualitative context) ─
+          const sample = uniqueReports.slice(-10)
+            .map(r => `  ${r.timestamp || ''} | ${r.active_app || ''} | ${String(r.window_title || '').slice(0, 60)}`)
+            .join('\n');
+
+          context = `FOCUS USER: ${user_id} (@ ${company_id})
+DESIGNATION: ${designation || 'Not specified'}
+DATE: ${targetDate}
+TOTAL REPORTS IN DB (this day): ${allReports.length}  (${uniqueReports.length} unique after dedup)
+
+NOTE FOR ANALYST: Each report covers one ~2-minute monitoring window.
+time_active_sec = seconds the user was actively typing/clicking in that window (max ~120s).
+time_idle_sec   = seconds the screen was idle in that window.
+WORK SPAN = wall-clock time from first to last recorded activity.
+Use the COMPUTED TOTALS below — do NOT re-estimate from the sample.
+
+── COMPUTED TOTALS (from all ${allReports.length} reports) ──
+Active time  : ${fmtSec(totalActiveSec)}  (${Math.round(totalActiveSec)}s)
+Idle time    : ${fmtSec(totalIdleSec)}  (${Math.round(totalIdleSec)}s)
+Work span    : ${spanStr}
+Keyboard     : ${totalKeys} key presses
+Mouse clicks : ${totalClicks}
+
+── HOURLY BREAKDOWN ──
+${hourlyLines}
+
+── TOP APPS (by active seconds) ──
+${topApps}
+
+── RECENT ACTIVITY SAMPLE (last 10 events) ──
+${sample}`;
+        }
+      } else {
+        // No specific date — lifetime summary
         const stats = await Report.aggregate([
           { $match: reportFilter },
           { $group: {
               _id: null,
-              total_active: { $sum: "$time_active_sec" },
-              total_idle: { $sum: "$time_idle_sec" },
-              total_keys: { $sum: "$keyboard_key_presses" },
-              total_clicks: { $sum: "$mouse_clicks" },
-              top_apps: { $push: "$active_app" }
+              total_active: { $sum: '$time_active_sec' },
+              total_idle:   { $sum: '$time_idle_sec' },
+              total_keys:   { $sum: '$keyboard_key_presses' },
+              total_clicks: { $sum: '$mouse_clicks' },
+              count:        { $sum: 1 }
           }}
         ]);
+        const lt = stats[0] || {};
+        const appSecs = {};
+        const appRows = await Report.aggregate([
+          { $match: reportFilter },
+          { $group: { _id: '$active_app', sec: { $sum: '$time_active_sec' } } },
+          { $sort: { sec: -1 } },
+          { $limit: 5 }
+        ]);
+        const topApps = appRows.map(r => `  - ${r._id || 'Unknown'}: ${Math.round(r.sec/60)}m`).join('\n');
 
-        const lifetime = stats[0] || {};
-        const logs = dedupeReportsBySignature(await Report.find(reportFilter).sort({ timestamp: -1 }).limit(20));
-        const appCounts = (lifetime.top_apps || []).reduce((acc, a) => { acc[a] = (acc[a] || 0) + 1; return acc; }, {});
-        const top3Apps = Object.entries(appCounts).sort((a,b) => b[1] - a[1]).slice(0,3).map(x => x[0]).join(', ');
+        context = `FOCUS USER: ${user_id} (@ ${company_id})
+DESIGNATION: ${designation || 'Not specified'}
+PERIOD: All time (${lt.count || 0} total reports)
 
-        daySummary = `
-      LIFETIME SUMMARY:
-      - Active: ${Math.round((lifetime.total_active || 0)/60)}m, Idle: ${Math.round((lifetime.total_idle || 0)/60)}m
-      - Total Inputs: ${lifetime.total_keys || 0} keys, ${lifetime.total_clicks || 0} clicks
-      - Top Apps: ${top3Apps || "N/A"}
-      
-      RECENT ACTIVITY SAMPLE:
-      ${logs.map(l => `- ${l.timestamp}: ${l.active_app} (${l.window_title})`).join('\n')}`;
+── LIFETIME TOTALS ──
+Active time  : ${Math.floor((lt.total_active||0)/3600)}h ${Math.floor(((lt.total_active||0)%3600)/60)}m
+Idle time    : ${Math.floor((lt.total_idle||0)/3600)}h ${Math.floor(((lt.total_idle||0)%3600)/60)}m
+Keyboard     : ${lt.total_keys || 0} key presses
+Mouse clicks : ${lt.total_clicks || 0}
+
+── TOP APPS (all time) ──
+${topApps || 'N/A'}`;
       }
-
-      context = `FOCUS USER: ${user_id} (@ ${company_id})
-      DESIGNATION: ${designation || 'Not specified'}${daySummary}`;
     } else {
-      // Global Company Aggregation
-      const stats = await Report.aggregate([
+      // Global / company-wide summary
+      const rows = await Report.aggregate([
         { $group: {
-            _id: "$user_id",
-            total_reports: { $sum: 1 },
-            active: { $sum: "$time_active_sec" }
+            _id: '$user_id',
+            reports:     { $sum: 1 },
+            active_sec:  { $sum: '$time_active_sec' },
+            total_keys:  { $sum: '$keyboard_key_presses' },
+            total_clicks:{ $sum: '$mouse_clicks' }
         }},
-        { $sort: { active: -1 } },
+        { $sort: { active_sec: -1 } },
         { $limit: 10 }
       ]);
 
       context = `GLOBAL COMPANY ANALYSIS (All Users):
-      Current Top Contributors (by active time):
-      ${stats.map(s => `- User ${s._id}: ${s.total_reports} reports, ${Math.round(s.active/60)}m active`).join('\n')}`;
+${rows.map(r =>
+  `  - ${r._id}: ${r.reports} reports | ${Math.floor(r.active_sec/3600)}h ${Math.floor((r.active_sec%3600)/60)}m active | ${r.total_keys} keys | ${r.total_clicks} clicks`
+).join('\n')}`;
     }
 
-    // 2. Query NVIDIA LLM
-    const body = {
-      model: "meta/llama-3.1-70b-instruct",
+    // ── Query LLM ──────────────────────────────────────────────────────────
+    const llmBody = {
+      model: 'meta/llama-3.1-70b-instruct',
       messages: [
-        { 
-          role: "system", 
-          content: `You are the Lead Performance Analyst. 
-          Use the provided context to answer questions. 
-          - If the context is GLOBAL, analyze company-wide patterns.
-          - If the context is for a FOCUS USER, be specific about their strengths/weaknesses and compare them to the user's designation.
-          Always use Markdown headers, bolding, and lists for a professional look.
-          
-          CONTEXT DATA:
-          ${context}`
+        {
+          role: 'system',
+          content: `You are a precise employee performance analyst.
+Rules:
+1. Answer ONLY from the CONTEXT DATA below — never invent numbers.
+2. Use the COMPUTED TOTALS directly; do not re-calculate or estimate.
+3. When asked "how many hours", give the Active time AND the Work span (first→last activity).
+4. Format answers with bold headers and bullet points.
+5. Keep answers concise and factual.
+
+CONTEXT DATA:
+${context}`
         },
-        { role: "user", content: message }
+        { role: 'user', content: message }
       ],
-      temperature: 0.5,
-      max_tokens: 1024
+      temperature: 0.2,
+      max_tokens: 768
     };
 
-    const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-      method: "POST",
+    const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      method: 'POST',
       headers: {
-        "Authorization": `Bearer ${NV_KEY}`,
-        "Content-Type": "application/json"
+        'Authorization': `Bearer ${NV_KEY}`,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(llmBody)
     });
 
     const data = await response.json();
+    if (!data.choices?.[0]?.message?.content) {
+      console.error('LLM bad response:', JSON.stringify(data).slice(0, 400));
+      return res.status(502).json({ error: 'LLM returned an unexpected response.' });
+    }
     res.json({ answer: data.choices[0].message.content });
 
   } catch (err) {
-    console.error("Chat error:", err);
-    res.status(500).json({ error: "Failed to generate AI response." });
+    console.error('Chat error:', err);
+    res.status(500).json({ error: 'Failed to generate AI response.' });
   }
 });
 
