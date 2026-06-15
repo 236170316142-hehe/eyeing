@@ -2683,6 +2683,34 @@ No activity logs found for this date.`;
             ? `${Math.floor(spanMin / 60)}h ${spanMin % 60}m  (${toLocalHHMM(firstTs)} → ${toLocalHHMM(lastTs)} local time)`
             : 'N/A';
 
+          // ── Net work sessions: gap > 30 min between reports = break ─────
+          // This is the most accurate answer to "how many hours did they work"
+          const BREAK_GAP_MIN = 30;
+          const workBlocks = [];
+          let blkStart = null, blkEnd = null;
+          for (const r of uniqueReports) {
+            const ts = new Date(r.eventAt || r.timestamp);
+            if (!blkStart) { blkStart = blkEnd = ts; continue; }
+            const gapMin = (ts - blkEnd) / 60000;
+            if (gapMin > BREAK_GAP_MIN) {
+              workBlocks.push({ start: blkStart, end: blkEnd });
+              blkStart = blkEnd = ts;
+            } else {
+              blkEnd = ts;
+            }
+          }
+          if (blkStart) workBlocks.push({ start: blkStart, end: blkEnd });
+
+          const netWorkMin = workBlocks.reduce((s, b) => {
+            return s + Math.round((b.end - b.start) / 60000);
+          }, 0);
+          const netWorkStr = `${Math.floor(netWorkMin / 60)}h ${netWorkMin % 60}m`;
+
+          const sessionLines = workBlocks.map(b => {
+            const durMin = Math.round((b.end - b.start) / 60000);
+            return `  ${toLocalHHMM(b.start)} → ${toLocalHHMM(b.end)}  (${Math.floor(durMin/60)}h ${durMin%60}m)`;
+          }).join('\n');
+
           // ── Hourly breakdown in LOCAL time ───────────────────────────────
           const hourBuckets = {};
           for (const r of allReports) {
@@ -2696,51 +2724,56 @@ No activity logs found for this date.`;
           }
           const hourlyLines = Object.entries(hourBuckets)
             .sort((a, b) => Number(a[0]) - Number(b[0]))
-            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 local — ${d.reports} reports, ${Math.round(d.activeSec/60)}m active`)
+            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 — ${d.reports} reports, ${Math.round(d.activeSec/60)}m keyboard/mouse active`)
             .join('\n');
 
-          // ── Top apps by time ─────────────────────────────────────────────
+          // ── Top apps by report count (not just input seconds) ────────────
+          const appCounts = {};
           const appSecs = {};
           for (const r of allReports) {
             const app = String(r.active_app || '').trim() || 'Unknown';
-            appSecs[app] = (appSecs[app] || 0) + Number(r.time_active_sec || 0);
+            appCounts[app] = (appCounts[app] || 0) + 1;
+            appSecs[app]   = (appSecs[app]   || 0) + Number(r.time_active_sec || 0);
           }
-          const topApps = Object.entries(appSecs)
+          const topApps = Object.entries(appCounts)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 6)
-            .map(([app, sec]) => `  - ${app}: ${Math.round(sec / 60)}m active`)
+            .map(([app, cnt]) => `  - ${app}: ${cnt} windows (${Math.round((appSecs[app]||0)/60)}m input)`)
             .join('\n');
 
-          // ── Recent sample (last 10 unique events for qualitative context) ─
-          const sample = uniqueReports.slice(-10)
-            .map(r => `  ${r.timestamp || ''} | ${r.active_app || ''} | ${String(r.window_title || '').slice(0, 60)}`)
+          // ── Recent sample ─────────────────────────────────────────────────
+          const sample = uniqueReports.slice(-8)
+            .map(r => `  ${toLocalHHMM(r.eventAt||r.timestamp)} | ${r.active_app || ''} | ${String(r.window_title||'').slice(0,55)}`)
             .join('\n');
 
           context = `FOCUS USER: ${user_id} (@ ${company_id})
 DESIGNATION: ${designation || 'Not specified'}
-DATE: ${targetDate}
-TOTAL REPORTS IN DB (this day): ${allReports.length}  (${uniqueReports.length} unique after dedup)
+DATE: ${targetDate} | Reports: ${allReports.length} total, ${uniqueReports.length} unique | Work sessions: ${workBlocks.length}
 
-NOTE FOR ANALYST: Each report covers one ~2-minute monitoring window.
-time_active_sec = seconds the user was actively typing/clicking in that window (max ~120s).
-time_idle_sec   = seconds the screen was idle in that window.
-WORK SPAN = wall-clock time from first to last recorded activity.
-Use the COMPUTED TOTALS below — do NOT re-estimate from the sample.
+━━ HOW TO READ THIS DATA ━━
+• NET WORK TIME = sum of all work sessions (gap >30 min between reports = counted as a break). THIS is the answer to "how many hours did they work".
+• KEYBOARD/MOUSE ACTIVE TIME = only the seconds the user was pressing keys or clicking (subset of work time; reading/thinking counts as idle input but not a break).
+• TOTAL SESSION SPAN = first activity to last activity (includes all gaps).
 
-── COMPUTED TOTALS (from all ${allReports.length} reports) ──
-Active time  : ${fmtSec(totalActiveSec)}  (${Math.round(totalActiveSec)}s)
-Idle time    : ${fmtSec(totalIdleSec)}  (${Math.round(totalIdleSec)}s)
-Work span    : ${spanStr}
-Keyboard     : ${totalKeys} key presses
-Mouse clicks : ${totalClicks}
+━━ WORK SESSIONS (local time, gaps >30 min excluded) ━━
+Net work time : ${netWorkStr}
+${sessionLines}
 
-── HOURLY BREAKDOWN ──
+━━ INPUT ENGAGEMENT ━━
+Keyboard/mouse active : ${fmtSec(totalActiveSec)}  out of ${netWorkStr} net work time
+Keyboard presses      : ${totalKeys}
+Mouse clicks          : ${totalClicks}
+
+━━ FULL SESSION SPAN ━━
+${spanStr}
+
+━━ HOURLY BREAKDOWN (local time) ━━
 ${hourlyLines}
 
-── TOP APPS (by active seconds) ──
+━━ TOP APPS ━━
 ${topApps}
 
-── RECENT ACTIVITY SAMPLE (last 10 events) ──
+━━ RECENT ACTIVITY SAMPLE ━━
 ${sample}`;
         }
       } else {
