@@ -64,7 +64,7 @@ function isGreetingOnlyMessage(message) {
   const normalized = String(message || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
 
-  return /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)( there)?$/.test(normalized);
+  return /^(hi|hello|hey|heya|hiya|helo|hii|heyy|yo|sup|howdy|greetings|good morning|good afternoon|good evening|what['']?s up|wassup|whats up)( there)?$/.test(normalized);
 }
 
 function resolveChatTargetDate(message, requestedDate) {
@@ -1490,20 +1490,44 @@ function buildDeterministicDailySummary({ companyId, userId, designation, report
   const firstMoment = sortedReports[0]?.moment || null;
   const lastMoment = sortedReports[sortedReports.length - 1]?.moment || null;
 
-  const sessionLines = sortedReports.slice(0, 4).map(({ report, moment }) => {
-    const start = formatSummaryTime(moment, timezoneOffsetMinutes);
-    const duration = formatSummaryDuration(report.time_active_sec);
-    const endMoment = moment ? new Date(moment.getTime() + Math.max(0, Number(report.time_active_sec || 0)) * 1000) : null;
-    const end = formatSummaryTime(endMoment, timezoneOffsetMinutes);
-    const appName = String(report.active_app || 'Unknown').trim() || 'Unknown';
-    const title = String(report.window_title || 'Untitled Window').trim() || 'Untitled Window';
-    return `- ${start} - ${end}: ${appName} - ${title} (${duration})`;
+  // Compute work blocks: gap > 30 min between consecutive reports = break
+  const BREAK_GAP_MIN = 30;
+  const workBlocks = [];
+  let blkStart = null, blkEnd = null, blkApps = [];
+  for (const { report, moment } of sortedReports) {
+    if (!blkStart) {
+      blkStart = blkEnd = moment;
+      blkApps = [String(report.active_app || '').trim()];
+      continue;
+    }
+    const gapMin = (moment - blkEnd) / 60000;
+    if (gapMin > BREAK_GAP_MIN) {
+      workBlocks.push({ start: blkStart, end: blkEnd, apps: blkApps });
+      blkStart = blkEnd = moment;
+      blkApps = [String(report.active_app || '').trim()];
+    } else {
+      blkEnd = moment;
+      const app = String(report.active_app || '').trim();
+      if (app && !blkApps.includes(app)) blkApps.push(app);
+    }
+  }
+  if (blkStart) workBlocks.push({ start: blkStart, end: blkEnd, apps: blkApps });
+
+  const netWorkMin = workBlocks.reduce((s, b) => s + Math.round((b.end - b.start) / 60000), 0);
+  const netWorkStr = `${Math.floor(netWorkMin / 60)}h ${netWorkMin % 60}m`;
+
+  const sessionLines = workBlocks.map(b => {
+    const durMin = Math.round((b.end - b.start) / 60000);
+    const start = formatSummaryTime(b.start, timezoneOffsetMinutes);
+    const end = formatSummaryTime(b.end, timezoneOffsetMinutes);
+    const topApps = [...new Set(b.apps.filter(Boolean))].slice(0, 3).join(', ') || 'Unknown';
+    return `- ${start} → ${end} (${Math.floor(durMin / 60)}h ${durMin % 60}m) — ${topApps}`;
   });
 
-  const noMoreSessionsLine = sortedReports.length > 4 ? '' : '- No other significant sessions were recorded.';
+  const noMoreSessionsLine = workBlocks.length === 0 ? '- No work sessions were recorded.' : '';
 
   const opening = activeMinutes > 0
-    ? `The user had ${activeMinutes.toFixed(1)} minutes of active time and ${idleMinutes.toFixed(1)} minutes idle across ${sortedReports.length} report(s) on ${targetDate}.`
+    ? `Net work time (excluding breaks >30 min): **${netWorkStr}** across ${workBlocks.length} session(s). Keyboard/mouse active: ${activeMinutes.toFixed(1)} min. Total reports: ${sortedReports.length}.`
     : `No active work time was recorded for ${targetDate}.`;
 
   const workSummary = unknownReports > 0
@@ -2842,9 +2866,10 @@ ${rows.map(r =>
 Rules:
 1. Answer ONLY from the CONTEXT DATA below — never invent numbers.
 2. Use the COMPUTED TOTALS directly; do not re-calculate or estimate.
-3. When asked "how many hours", give the Active time AND the Work span (first→last activity).
+3. When asked "how many hours did they work", the answer is NET WORK TIME from the WORK SESSIONS section. Do NOT use Work Span (it includes break gaps). Do NOT use Keyboard/Mouse active time (that is only input seconds, not hours worked).
 4. Format answers with bold headers and bullet points.
 5. Keep answers concise and factual.
+6. If someone greets you (hi, heya, hello, hey, etc.) just respond warmly and ask what employee/date they'd like to check — do not output employee data.
 
 CONTEXT DATA:
 ${context}`

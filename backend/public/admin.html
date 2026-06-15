@@ -756,7 +756,7 @@
       const normalized = String(message || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
       if (!normalized) return false;
 
-      return /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)( there)?$/.test(normalized);
+      return /^(hi|hello|hey|heya|hiya|helo|hii|heyy|yo|sup|howdy|greetings|good morning|good afternoon|good evening|what s up|wassup|whats up)( there)?$/.test(normalized);
     }
 
     function resolveChatDateFromMessage(message, fallbackDate) {
@@ -881,22 +881,45 @@
         return '<div class="chat-suggest-item" style="margin-top:10px;">No report data available for visual snapshot.</div>';
       }
 
-      const activeMinutes = reports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0) / 60;
-      const idleMinutes = reports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0) / 60;
-      const keys = reports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
-      const clicks = reports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
+      const activeMinutes = reports.reduce((sum, r) => sum + Number(r.time_active_sec || 0), 0) / 60;
+      const idleMinutes   = reports.reduce((sum, r) => sum + Number(r.time_idle_sec   || 0), 0) / 60;
+      const keys   = reports.reduce((sum, r) => sum + Number(r.keyboard_key_presses || 0), 0);
+      const clicks = reports.reduce((sum, r) => sum + Number(r.mouse_clicks || 0), 0);
       const focusRatio = Math.round((activeMinutes / Math.max(1, activeMinutes + idleMinutes)) * 100);
       const appUsage = buildAppUsage(reports);
       const topApp = appUsage[0] ? `${appUsage[0].name} (${appUsage[0].pct.toFixed(0)}%)` : 'N/A';
-      const role = (designation || reports.find(report => report.designation)?.designation || 'Not set').trim();
+      const role = (designation || reports.find(r => r.designation)?.designation || 'Not set').trim();
+
+      // Compute net work time from session blocks (gap >30 min = break)
+      const sorted = [...reports].sort((a, b) => {
+        const ta = new Date(a.eventAt || a.timestamp || a.createdAt || 0).getTime();
+        const tb = new Date(b.eventAt || b.timestamp || b.createdAt || 0).getTime();
+        return ta - tb;
+      });
+      const BREAK_GAP_MS = 30 * 60 * 1000;
+      const wBlocks = [];
+      let wStart = null, wEnd = null;
+      for (const r of sorted) {
+        const ts = new Date(r.eventAt || r.timestamp || r.createdAt || 0).getTime();
+        if (!ts) continue;
+        if (!wStart) { wStart = wEnd = ts; continue; }
+        if (ts - wEnd > BREAK_GAP_MS) { wBlocks.push({ start: wStart, end: wEnd }); wStart = wEnd = ts; }
+        else { wEnd = ts; }
+      }
+      if (wStart) wBlocks.push({ start: wStart, end: wEnd });
+      const netWorkMin = wBlocks.reduce((s, b) => s + Math.round((b.end - b.start) / 60000), 0);
+      const netWorkStr = netWorkMin >= 60
+        ? `${Math.floor(netWorkMin / 60)}h ${netWorkMin % 60}m`
+        : `${netWorkMin}m`;
 
       const metrics = { activeMinutes, idleMinutes, focusRatio };
       const suggestions = getRoleSuggestions(role, metrics);
 
       return `
         <div class="chat-visual-grid">
+          <div class="chat-kpi" style="grid-column: span 2;"><div class="label">Net Work Time</div><div class="value" style="font-size:1.4rem;">${netWorkStr}</div><div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">${wBlocks.length} session(s) · breaks >30 min excluded</div></div>
           <div class="chat-kpi"><div class="label">Focus Ratio</div><div class="value">${focusRatio}%</div><div class="chat-bar-track"><div class="chat-bar-fill" style="width:${Math.max(4, Math.min(100, focusRatio))}%;"></div></div></div>
-          <div class="chat-kpi"><div class="label">Active Time</div><div class="value">${activeMinutes.toFixed(1)} min</div></div>
+          <div class="chat-kpi"><div class="label">Input Activity</div><div class="value">${activeMinutes.toFixed(1)} min</div></div>
           <div class="chat-kpi"><div class="label">Input Volume</div><div class="value">${keys + clicks}</div></div>
           <div class="chat-kpi"><div class="label">Top App</div><div class="value">${topApp}</div></div>
         </div>
