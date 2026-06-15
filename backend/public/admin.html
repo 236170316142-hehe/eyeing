@@ -1553,12 +1553,16 @@
                 <button onclick="focusChat('${t.company_id}', '${t.user_id}')" class="btn-action" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">
                    💬 Chat
                 </button>
-                 <button onclick="approveUninstall('${t.company_id}', '${t.user_id}', this, ${isPendingUninstall ? 'true' : 'false'})" class="btn-action ${isPendingUninstall ? 'btn-approve-uninstall' : 'btn-decommission'}" ${isPendingUninstall ? '' : 'disabled'}>
-                   🗑 ${isDecom ? 'Wiping' : (isPendingUninstall ? 'Approve uninstall' : 'Await request')}
+                ${isPendingUninstall ? `
+                <button onclick="approveUninstall('${t.company_id}', '${t.user_id}', this, true)" class="btn-action btn-approve-uninstall">
+                   ✅ Approve
                 </button>
-                <button onclick="rejectUninstall('${t.company_id}', '${t.user_id}', this, ${isPendingUninstall ? 'true' : 'false'})" class="btn-action btn-decommission" ${isPendingUninstall ? '' : 'disabled'}>
-                   ❌ ${isPendingUninstall ? 'Reject request' : 'Await request'}
-                </button>
+                <button onclick="rejectUninstall('${t.company_id}', '${t.user_id}', this, true)" class="btn-action btn-decommission">
+                   ❌ Reject
+                </button>` : (isDecom ? `
+                <button class="btn-action btn-decommission" disabled style="opacity:0.4; cursor:default;">
+                   ⏳ Wiping…
+                </button>` : '')}
                 <button onclick="${isPendingUpdate ? `cancelUpdateForUser('${t.company_id}','${t.user_id}',this)` : `pushUpdateForUser('${t.company_id}','${t.user_id}',this)`}"
                         class="btn-action ${isPendingUpdate ? 'btn-cancel-update' : 'btn-push-update'}"
                         ${isDecom ? 'disabled' : ''}

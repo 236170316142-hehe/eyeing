@@ -657,6 +657,20 @@ On Error GoTo 0
         except Exception as e:
             print(f"[WARN] Scheduled task setup failed: {e}")
 
+        # Watchdog task — runs every 5 minutes to restart monitor if it was killed
+        try:
+            watchdog_path = script_dir() / 'watchdog.py'
+            if watchdog_path.exists():
+                wd_tr = f'"{python_exec}" "{watchdog_path}"'
+                subprocess.run(
+                    ['schtasks', '/Create', '/SC', 'MINUTE', '/MO', '5',
+                     '/TN', 'EmployeeMonitorWatchdog', '/TR', wd_tr, '/F', '/NP'],
+                    capture_output=True, text=True, check=False
+                )
+                print("[OK] Watchdog task registered — monitor restarts within 5 min if killed")
+        except Exception as e:
+            print(f"[WARN] Watchdog task setup failed: {e}")
+
         # Add HKCU Run registry entry - fallback if other methods blocked
         try:
             run_value = f'wscript.exe "{vbs_path}"'

@@ -1272,6 +1272,7 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
 function addEmployeePackageFiles(archive, platformDefinition, origin, platformKey) {
   const rootFiles = [
     'monitor.py',
+    'watchdog.py',
     'install_and_run.py',
     'requirements.txt',
     'README.md',
@@ -1282,6 +1283,7 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   if (platformDefinition.updateOnly) {
     const updateFiles = [
       'monitor.py',
+      'watchdog.py',
       'install_and_run.py',
       'requirements.txt',
       'verify_tesseract.py',
