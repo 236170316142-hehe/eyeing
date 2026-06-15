@@ -2655,22 +2655,40 @@ No activity logs found for this date.`;
 
           const fmtSec = (sec) => `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
 
-          // ── Work span: first → last activity timestamp ───────────────────
+          // Convert a UTC Date to a local-time HH:MM string using tzOffset
+          // tzOffset = getTimezoneOffset() from browser (negative for UTC+ zones)
+          // localMs = utcMs - tzOffset*60000
+          const toLocalHHMM = (ts) => {
+            if (!ts) return 'N/A';
+            const localMs = new Date(ts).getTime() - tzOffset * 60000;
+            const d = new Date(localMs);
+            const hh = String(d.getUTCHours()).padStart(2, '0');
+            const mm = String(d.getUTCMinutes()).padStart(2, '0');
+            return `${hh}:${mm}`;
+          };
+
+          // Convert UTC timestamp to local hour (for hourly bucketing)
+          const toLocalHour = (ts) => {
+            const localMs = new Date(ts).getTime() - tzOffset * 60000;
+            return new Date(localMs).getUTCHours();
+          };
+
+          // ── Work span: first → last activity in LOCAL time ───────────────
           const firstTs = uniqueReports[0].eventAt || uniqueReports[0].timestamp;
           const lastTs  = uniqueReports[uniqueReports.length - 1].eventAt || uniqueReports[uniqueReports.length - 1].timestamp;
           const spanMin = (firstTs && lastTs)
             ? Math.round((new Date(lastTs) - new Date(firstTs)) / 60000)
             : null;
           const spanStr = spanMin !== null
-            ? `${Math.floor(spanMin / 60)}h ${spanMin % 60}m  (${new Date(firstTs).toLocaleTimeString()} → ${new Date(lastTs).toLocaleTimeString()})`
+            ? `${Math.floor(spanMin / 60)}h ${spanMin % 60}m  (${toLocalHHMM(firstTs)} → ${toLocalHHMM(lastTs)} local time)`
             : 'N/A';
 
-          // ── Hourly breakdown ─────────────────────────────────────────────
+          // ── Hourly breakdown in LOCAL time ───────────────────────────────
           const hourBuckets = {};
           for (const r of allReports) {
             const ts = r.eventAt;
             if (ts) {
-              const h = new Date(ts).getHours();
+              const h = toLocalHour(ts);
               if (!hourBuckets[h]) hourBuckets[h] = { reports: 0, activeSec: 0 };
               hourBuckets[h].reports++;
               hourBuckets[h].activeSec += Number(r.time_active_sec || 0);
@@ -2678,7 +2696,7 @@ No activity logs found for this date.`;
           }
           const hourlyLines = Object.entries(hourBuckets)
             .sort((a, b) => Number(a[0]) - Number(b[0]))
-            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 — ${d.reports} reports, ${Math.round(d.activeSec/60)}m active`)
+            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 local — ${d.reports} reports, ${Math.round(d.activeSec/60)}m active`)
             .join('\n');
 
           // ── Top apps by time ─────────────────────────────────────────────
