@@ -1276,7 +1276,6 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     'requirements.txt',
     'README.md',
     'DEPLOYMENT_GUIDE.md',
-    'QUICK_START.py'
   ];
 
   // update-only packages: Python core + web assets + version stamp. No installers.

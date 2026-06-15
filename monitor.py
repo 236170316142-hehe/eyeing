@@ -1070,11 +1070,35 @@ class ActivityMonitor:
             self.log.debug(f"Could not reach remote authorization server, defaulting to ACTIVE: {e}")
         return True, False, 120  # Default: active, not decommissioned, 2min interval
 
+    def _send_update_confirm(self, version: str):
+        """POST confirm-update to the server. Returns True on success."""
+        try:
+            payload = json.dumps({
+                'company_id': self.company_id,
+                'user_id': self.user_id,
+                'device_id': self.device_id,
+                'install_id': str(self._install_context.get('install_id') or '').strip(),
+                'version': version
+            }).encode('utf-8')
+            req = urllib.request.Request(
+                f'{self.backend_url}/api/tracker/confirm-update',
+                data=payload,
+                headers={'Content-Type': 'application/json', 'User-Agent': 'EmployeeMonitor/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=15):
+                pass
+            self.log.info(f'[UPDATE] Confirm sent for v{version}.')
+            return True
+        except Exception as exc:
+            self.log.warning(f'[UPDATE] Confirm failed (will retry on next startup): {exc}')
+            return False
+
     def _apply_remote_update(self, update_url: str, version: str):
-        """Download the update ZIP, hot-swap files (preserving activity_data), confirm, then restart."""
+        """Download the update ZIP, hot-swap files, write a marker, then restart."""
         import tempfile
         import zipfile as _zipfile
 
+        PENDING_CONFIRM_FILE = DATA_DIR / 'pending_update_confirm.json'
         tmp_zip = None
         self.log.info(f'[UPDATE] Downloading update v{version} from {update_url} ...')
         try:
@@ -1097,36 +1121,50 @@ class ActivityMonitor:
                     if member.is_dir():
                         continue
                     if any(name.startswith(p) or name == p.rstrip('/\\') for p in PROTECTED):
-                        self.log.debug(f'[UPDATE] Skipping protected path: {name}')
                         continue
                     dest = BASE_DIR / name
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, open(dest, 'wb') as dst:
                         shutil.copyfileobj(src, dst)
-                    self.log.debug(f'[UPDATE] Updated: {name}')
 
-            self.log.info(f'[UPDATE] v{version} files applied successfully.')
+            self.log.info(f'[UPDATE] v{version} files extracted.')
 
-            # 3. Confirm to server so the pending flag is cleared for this tracker
-            payload = json.dumps({
+            # 3. Write a marker file so the NEW process confirms on its first startup.
+            #    This decouples the confirm from the restart — if restart fails, next
+            #    poll retries; if confirm fails, next startup retries from the marker.
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            PENDING_CONFIRM_FILE.write_text(json.dumps({
+                'version': version,
                 'company_id': self.company_id,
                 'user_id': self.user_id,
                 'device_id': self.device_id,
                 'install_id': str(self._install_context.get('install_id') or '').strip(),
-                'version': version
-            }).encode('utf-8')
-            confirm_req = urllib.request.Request(
-                f'{self.backend_url}/api/tracker/confirm-update',
-                data=payload,
-                headers={'Content-Type': 'application/json', 'User-Agent': 'EmployeeMonitor/1.0'}
-            )
-            with urllib.request.urlopen(confirm_req, timeout=10):
-                pass
-            self.log.info('[UPDATE] Confirmation sent to server.')
+            }), encoding='utf-8')
 
-            # 4. Restart the monitor to pick up the new code
-            self.log.info('[UPDATE] Restarting monitor process...')
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # 4. Restart using subprocess.Popen so the new process is truly independent.
+            #    os.execv() is unreliable on Windows when launched from VBScript / Task Scheduler.
+            self.log.info('[UPDATE] Restarting monitor to load new code...')
+            monitor_script = str(BASE_DIR / 'monitor.py')
+            try:
+                if sys.platform == 'win32':
+                    DETACHED = 0x00000008
+                    NEW_GROUP = 0x00000200
+                    subprocess.Popen(
+                        [sys.executable, monitor_script],
+                        cwd=str(BASE_DIR),
+                        creationflags=DETACHED | NEW_GROUP,
+                        close_fds=True
+                    )
+                else:
+                    subprocess.Popen(
+                        [sys.executable, monitor_script],
+                        cwd=str(BASE_DIR),
+                        start_new_session=True
+                    )
+                sys.exit(0)
+            except Exception as restart_exc:
+                self.log.error(f'[UPDATE] Restart via Popen failed ({restart_exc}), falling back to execv...')
+                os.execv(sys.executable, [sys.executable, monitor_script])
 
         except Exception as exc:
             self.log.error(f'[UPDATE] Update failed: {exc}')
@@ -1138,6 +1176,28 @@ class ActivityMonitor:
                     os.unlink(tmp_zip)
                 except Exception:
                     pass
+
+    def _check_and_confirm_pending_update(self):
+        """On startup: if a pending-confirm marker exists, send the confirm now and delete the marker."""
+        PENDING_CONFIRM_FILE = DATA_DIR / 'pending_update_confirm.json'
+        if not PENDING_CONFIRM_FILE.exists():
+            return
+        try:
+            data = json.loads(PENDING_CONFIRM_FILE.read_text(encoding='utf-8'))
+            version = data.get('version', '?')
+            self.log.info(f'[UPDATE] Found pending confirm for v{version} — sending now...')
+            # Patch self identity from marker in case monitor hasn't resolved it yet
+            if not self.company_id and data.get('company_id'):
+                self.company_id = data['company_id']
+            if not self.user_id and data.get('user_id'):
+                self.user_id = data['user_id']
+            if self._send_update_confirm(version):
+                PENDING_CONFIRM_FILE.unlink(missing_ok=True)
+                self.log.info(f'[UPDATE] v{version} confirmed and marker cleared.')
+            else:
+                self.log.warning('[UPDATE] Confirm failed — will retry on next startup.')
+        except Exception as exc:
+            self.log.error(f'[UPDATE] Could not process pending confirm marker: {exc}')
 
     def _self_destruct(self):
         """Permanently remove all traces of the monitor from this PC."""
@@ -1410,7 +1470,11 @@ rm -rf {shlex.quote(folder_path)}
         """Main monitoring loop."""
         if _is_placeholder_identity(self.company_id, self.user_id):
             self._hydrate_identity_from_remote(force=True)
-        
+
+        # If a previous update left a pending-confirm marker, send it now.
+        # This runs before anything else so the badge clears immediately on startup.
+        self._check_and_confirm_pending_update()
+
         # --- Immediate startup auth check: get admin-configured interval BEFORE first report ---
         should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
         self._send_pipeline_heartbeat()
