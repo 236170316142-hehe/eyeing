@@ -126,8 +126,8 @@
       grid-template-columns: 1fr 1.15fr;
     }
 
-    .pane-l { padding: 30px; border-right: 1px solid var(--border); min-width: 0; overflow: hidden; }
-    .pane-r { padding: 30px; background: rgba(255,255,255,0.012); min-width: 0; overflow: hidden; }
+    .pane-l { padding: 30px; border-right: 1px solid var(--border); min-width: 0; }
+    .pane-r { padding: 30px; background: rgba(255,255,255,0.012); min-width: 0; }
 
     /* ── DOWNLOAD CARD ── */
     .dl-card {
@@ -247,9 +247,9 @@
     .step-num.mac { background:rgba(167,139,250,0.14); border-color:rgba(167,139,250,0.4); color:#c4b5fd; }
     .step-num.lin { background:rgba(249,115,22,0.14);  border-color:rgba(249,115,22,0.4);  color:#fdba74; }
 
-    .step-body { padding-top: 3px; min-width: 0; overflow: hidden; }
+    .step-body { padding-top: 3px; min-width: 0; }
     .step-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 3px; color: var(--text); }
-    .step-desc  { color: var(--muted); font-size: 0.84rem; line-height: 1.6; overflow-wrap: break-word; word-break: break-word; }
+    .step-desc  { color: var(--muted); font-size: 0.84rem; line-height: 1.6; overflow-wrap: break-word; }
 
     .step-desc ic {
       display: inline;
@@ -260,8 +260,7 @@
       color: #cbd5e1;
       font-size: 0.81rem;
       font-family: 'Courier New', monospace;
-      white-space: normal;
-      word-break: break-all;
+      white-space: nowrap;
     }
 
     /* ── TIP BLOCK ── */
@@ -356,9 +355,9 @@
 
     /* ── metadata ── */
     const META = {
-      win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Double-click Setup.vbs to install' },
-      mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Double-click install.command to install' },
-      lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Run bash install.sh to install' },
+      win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Includes Setup.vbs' },
+      mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Includes install.command' },
+      lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Includes install.sh' },
     };
 
     /* ── per-OS steps ── */
@@ -370,19 +369,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Right-click the ZIP → <em>Extract All</em> and choose a destination folder.'
+          d: 'Right-click the file → <em>Extract All</em> and choose a destination folder.'
         },
         {
           t: 'Double-click Setup.vbs',
-          d: 'Your browser opens the setup page immediately. Everything else — Python, packages, Tesseract, autostart — installs silently in the background. No windows, no prompts.'
+          d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background — no windows, no prompts required.'
         },
         {
           t: 'Complete the setup form',
-          d: 'Fill in the employee name in the browser tab that opened and click Save.'
+          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
+          d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot.'
         }
       ],
       mac: [
@@ -392,19 +391,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Double-click the ZIP — macOS extracts it automatically.'
+          d: 'Double-click the ZIP — macOS extracts it to the same folder automatically.'
         },
         {
           t: 'Double-click install.command',
-          d: 'Your browser opens the setup page immediately. Python, packages, Tesseract, and the LaunchAgent autostart all install silently in the background. If macOS asks "Are you sure?", click <em>Open</em>.'
+          d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background. If macOS blocks it, right-click → <em>Open</em>, then click <em>Open</em>.'
         },
         {
           t: 'Complete the setup form',
-          d: 'Fill in the employee name in the browser tab that opened and click Save.'
+          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor runs silently and auto-starts after every login via macOS LaunchAgent. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
+          d: 'The monitor runs silently and auto-starts after every login via a macOS LaunchAgent.'
         }
       ],
       lin: [
@@ -414,19 +413,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Run <ic>unzip employee-monitor-linux.zip -d employee-monitor</ic> in a terminal, or use your file manager.'
+          d: 'Run <ic>unzip employee-monitor-linux.zip -d eyeing</ic> in a terminal, or use your file manager.'
         },
         {
           t: 'Run the installer',
-          d: 'Open a terminal in the extracted folder and run: <ic>bash install.sh</ic> — your browser opens the setup page immediately and all dependencies install silently in the background.'
+          d: 'Open a terminal inside the extracted folder and run <ic>bash install.sh</ic>. Your browser opens automatically and all dependencies install silently in the background.'
         },
         {
           t: 'Complete the setup form',
-          d: 'Fill in the employee name in the browser tab that opened and click Save.'
+          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor auto-starts after every reboot via systemd or cron. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
+          d: 'The monitor starts in the background and auto-starts after every reboot via systemd or cron.'
         }
       ]
     };
