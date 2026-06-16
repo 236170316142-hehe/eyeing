@@ -283,7 +283,7 @@ const EMPLOYEE_PACKAGE_DEFINITIONS = {
     archiveName: 'employee-monitor-windows.zip',
     includeBatchLauncher: true,
     includeUnixLauncher: false,
-    includeWindowsAutomation: true,
+    includeWindowsAutomation: false,
     includeEnterpriseTools: false
   },
   macos: {
@@ -399,12 +399,12 @@ cd "$SCRIPT_DIR"
 
 # ── Resolve backend URL ──────────────────────────────────────────────────
 BACKEND_URL="https://eyeing.onrender.com"
-if [ -f "$SCRIPT_DIR/backend_url.txt" ]; then
-  BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/backend_url.txt")
+if [ -f "$SCRIPT_DIR/eyeing/backend_url.txt" ]; then
+  BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/eyeing/backend_url.txt")
 fi
 DEVICE_ID=$(hostname -s 2>/dev/null || echo "linux-device")
 INSTALL_ID="lin-$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
-LOG="$SCRIPT_DIR/setup_log.txt"
+LOG="$SCRIPT_DIR/eyeing/setup_log.txt"
 
 # ── Open setup page in browser immediately ───────────────────────────────
 SETUP_URL="$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID"
@@ -452,8 +452,8 @@ echo "" >> "$LOG"
   # ── Step 3: Python packages ──────────────────────────────────────────────
   echo "[*] Installing Python packages..." >> "$LOG"
   "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
-  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || \
-    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || \
+    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || true
   echo "[OK] Python packages installed" >> "$LOG"
 
   # ── Step 4: Tesseract ────────────────────────────────────────────────────
@@ -470,7 +470,7 @@ echo "" >> "$LOG"
 
   # ── Step 5: Autostart + start monitor ───────────────────────────────────
   echo "[*] Configuring autostart..." >> "$LOG"
-  "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" "$SCRIPT_DIR/eyeing/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
   loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || sudo loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || true
   CRON_LINE="@reboot $PYTHON_BIN $SCRIPT_DIR/monitor.py >> $HOME/.employee-monitor-output.log 2>&1"
   ( crontab -l 2>/dev/null | grep -v "monitor.py" | grep -v "employee-monitor"; echo "$CRON_LINE" ) | crontab - >> "$LOG" 2>&1 || true
@@ -500,10 +500,10 @@ chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.command "$SCRIPT_DIR"/*.py 2>/dev/nu
 
 # ── Resolve backend URL ──────────────────────────────────────────────────
 BACKEND_URL="https://eyeing.onrender.com"
-[ -f "$SCRIPT_DIR/backend_url.txt" ] && BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/backend_url.txt")
+[ -f "$SCRIPT_DIR/eyeing/backend_url.txt" ] && BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/eyeing/backend_url.txt")
 DEVICE_ID=$(hostname -s 2>/dev/null || echo "mac-device")
 INSTALL_ID="mac-$(uuidgen 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
-LOG="$SCRIPT_DIR/setup_log.txt"
+LOG="$SCRIPT_DIR/eyeing/setup_log.txt"
 
 # ── Open setup page immediately ──────────────────────────────────────────
 open "$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID" 2>/dev/null || true
@@ -542,8 +542,8 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor macOS setup started" > "$L
   # Step 4: Python packages
   echo "[*] Installing Python packages..." >> "$LOG"
   "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
-  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || \
-    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || \
+    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || true
 
   # Step 5: Tesseract
   if ! command -v tesseract >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
@@ -554,7 +554,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor macOS setup started" > "$L
 
   # Step 6: Autostart (LaunchAgent) + start monitor now
   echo "[*] Configuring LaunchAgent autostart..." >> "$LOG"
-  "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" "$SCRIPT_DIR/eyeing/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
   PLIST="$HOME/Library/LaunchAgents/com.eyeing.monitor.plist"
   if [ -f "$PLIST" ]; then
     UID_NUM=$(id -u)
@@ -855,7 +855,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 dir = fso.GetParentFolderName(WScript.ScriptFullName) & "\\"
 
 backendUrl = "${backendUrl}"
-urlFile = dir & "backend_url.txt"
+urlFile = dir & "eyeing\\backend_url.txt"
 If fso.FileExists(urlFile) Then
   Set f = fso.OpenTextFile(urlFile, 1)
   Dim u : u = Trim(f.ReadAll())
@@ -872,7 +872,7 @@ setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&ins
 ws.Run "cmd /c start """" """ & setupUrl & """", 0, False
 
 ' Run install.bat completely hidden — no window ever appears
-bat = dir & "install.bat"
+bat = dir & "eyeing\\install.bat"
 ws.Run "cmd /c set ""SKIP_SETUP_OPEN=1"" & call """ & bat & """", 0, False
 `;
 }
@@ -883,8 +883,6 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     'watchdog.py',
     'install_and_run.py',
     'requirements.txt',
-    'README.md',
-    'DEPLOYMENT_GUIDE.md',
   ];
 
   // update-only packages: Python core + web assets + version stamp. No installers.
@@ -920,27 +918,27 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     return;
   }
 
+  // All support files go into eyeing/ subfolder — only the launcher and README.txt are at root.
   rootFiles.forEach((relativePath) => {
     const absPath = path.join(ROOT_DIR, relativePath);
     if (fs.existsSync(absPath)) {
-      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
+      archive.file(absPath, { name: 'eyeing/' + relativePath });
     }
   });
 
   if (platformDefinition.includeBatchLauncher) {
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
-      archive.file(installBat, { name: 'install.bat' });
+      archive.file(installBat, { name: 'eyeing/install.bat' });
     }
     archive.append(buildWindowsVbsLauncher(origin), { name: 'Setup.vbs' });
   }
 
   if (platformDefinition.includeWindowsAutomation) {
-    // verify scripts only — deploy_automated.bat is enterprise-only (it shows an interactive UI)
     ['verify_tesseract.py', 'verify_autostart.py'].forEach((relativePath) => {
       const absPath = path.join(ROOT_DIR, relativePath);
       if (fs.existsSync(absPath)) {
-        archive.file(absPath, { name: relativePath });
+        archive.file(absPath, { name: 'eyeing/' + relativePath });
       }
     });
   }
@@ -971,18 +969,6 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     addDirectoryRecursive(archive, tesseractDir, 'tesseract');
   }
 
-  const webAssets = [
-    'backend/public/setup.html',
-    'backend/public/employee-distribution.html'
-  ];
-
-  webAssets.forEach((relativePath) => {
-    const absPath = path.join(ROOT_DIR, relativePath);
-    if (fs.existsSync(absPath)) {
-      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
-    }
-  });
-
   if (platformDefinition.includeUnixLauncher) {
     archive.append(buildUnixLauncherScript(), { name: 'install.sh', mode: 0o755 });
 
@@ -995,8 +981,8 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     ? buildEnterpriseReadme(origin)
     : buildEmployeePackageReadme(platformDefinition.label, origin);
   archive.append(readme, { name: 'README.txt' });
-  archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'manifest.json' });
-  archive.append(`${origin}\n`, { name: 'backend_url.txt' });
+  archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'eyeing/manifest.json' });
+  archive.append(`${origin}\n`, { name: 'eyeing/backend_url.txt' });
 }
 
 function streamEmployeePackage(req, res, platform) {
