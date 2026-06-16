@@ -1002,23 +1002,28 @@ def main():
     else:
         cleanup_previous_package()
     
+    _silent = '--silent' in sys.argv
+
     if not check_python():
         if is_windows() and '--no-install' not in sys.argv:
             install_python()
             print("\n[INFO] Please restart this script after Python installation.")
-            input("Press Enter to exit...")
+            if not _silent:
+                input("Press Enter to exit...")
             sys.exit(0)
 
         if '--no-install' in sys.argv:
             print("\n[ERROR] Python is required. Please install from python.org")
-            input("Press Enter to exit...")
+            if not _silent:
+                input("Press Enter to exit...")
             sys.exit(1)
 
         print("\n[ERROR] Python 3.8+ is required. Please install Python and rerun this installer.")
         sys.exit(1)
-    
+
     if not install_requirements():
-        input("Press Enter to exit...")
+        if not _silent:
+            input("Press Enter to exit...")
         sys.exit(1)
 
     tesseract_ok = check_tesseract()
