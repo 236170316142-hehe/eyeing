@@ -762,47 +762,39 @@ exec /bin/bash "$TARGET_DIR/install.sh"
 }
 
 function buildEmployeePackageReadme(platformLabel, origin) {
-  return `Employee Monitor ${platformLabel} package
+  return `Employee Monitor — ${platformLabel}
+Backend: ${origin}
 
-This archive is generated live from the Render backend so it always includes the latest app files and backend URL.
+HOW TO INSTALL
+==============
+Windows  →  Double-click  Setup.vbs
+             Your browser opens the onboarding page immediately.
+             Everything else (Python, packages, autostart) installs
+             silently in the background — no windows, no prompts.
 
-Included files:
-- monitor.py
-- install_and_run.py
-- requirements.txt
-- backend_url.txt
-- backend/public/setup.html
-- backend/public/employee-distribution.html
+macOS    →  Double-click  install.command
+             Your browser opens the onboarding page immediately.
+             All installs run silently in the background.
+             If macOS blocks it: right-click → Open → Open.
 
-Launcher:
-- Windows: deploy_automated.bat (full automated setup), with install.bat as entry point
-- macOS and Linux: install.sh (auto-detects OS and package manager)
-- macOS additional launcher: install.command
+Linux    →  Open a terminal in this folder and run:
+               bash install.sh
+             Your browser opens the onboarding page immediately.
+             All installs run silently in the background.
 
-If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
-Expected bundled paths inside ZIP:
-- Windows: tesseract/tesseract.exe
-- Linux/macOS: tesseract/bin/tesseract
+WHAT INSTALLS AUTOMATICALLY
+============================
+  • Python 3 (if not already installed)
+  • All required Python packages
+  • Tesseract-OCR (if not already installed)
+  • Monitor autostart on every login / reboot
 
-If bundle is missing, installer falls back to system/package-manager install.
-You can force bundle source on backend build host with env vars:
-- TESSERACT_BUNDLE_WINDOWS
-- TESSERACT_BUNDLE_LINUX
-- TESSERACT_BUNDLE_MACOS
+PROGRESS LOG
+============
+Installation progress is written to setup_log.txt in this folder.
+Open it any time to check status or diagnose issues.
 
-Launch the installer from this folder, or run it from a terminal with the platform launcher.
-
-Backend URL:
-${origin}
-
-macOS Access Notes (Gatekeeper):
-1) Open the extracted package folder and double-click install.command.
-2) If Gatekeeper blocks it, open Terminal and run these commands inside the extracted folder:
-  xattr -dr com.apple.quarantine .
-  chmod +x install.sh install.command
-  ./install.sh
-
-Tip: Use the direct bootstrap download from employee-distribution.html to avoid manual unzip/chmod steps.
+After install the monitor starts automatically — no further steps needed.
 `;
 }
 
@@ -944,11 +936,8 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   }
 
   if (platformDefinition.includeWindowsAutomation) {
-    [
-      'deploy_automated.bat',
-      'verify_tesseract.py',
-      'verify_autostart.py'
-    ].forEach((relativePath) => {
+    // verify scripts only — deploy_automated.bat is enterprise-only (it shows an interactive UI)
+    ['verify_tesseract.py', 'verify_autostart.py'].forEach((relativePath) => {
       const absPath = path.join(ROOT_DIR, relativePath);
       if (fs.existsSync(absPath)) {
         archive.file(absPath, { name: relativePath });
@@ -957,6 +946,9 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   }
 
   if (platformDefinition.includeEnterpriseTools) {
+    // deploy_automated.bat is only for IT admins in enterprise packages
+    const depBat = path.join(ROOT_DIR, 'deploy_automated.bat');
+    if (fs.existsSync(depBat)) archive.file(depBat, { name: 'deploy_automated.bat' });
     archive.append(buildEnterpriseBatchLauncher(origin), { name: 'install_enterprise.bat' });
 
     [
