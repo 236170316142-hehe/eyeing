@@ -123,7 +123,7 @@
     /* ── BODY ── */
     .body {
       display: grid;
-      grid-template-columns: 1fr 1.15fr;
+      grid-template-columns: 0.75fr 1.25fr;
     }
 
     .pane-l { padding: 30px; border-right: 1px solid var(--border); min-width: 0; }
@@ -199,60 +199,6 @@
     }
     .dl-note::before { content:'⚡'; flex-shrink:0; }
 
-    .feat-list {
-      margin-top: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 9px;
-    }
-    .feat-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.82rem;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-    .feat-icon {
-      flex-shrink: 0;
-      width: 20px; height: 20px;
-      border-radius: 50%;
-      background: rgba(16,185,129,0.12);
-      border: 1px solid rgba(16,185,129,0.28);
-      color: #10b981;
-      font-size: 0.68rem;
-      font-weight: 800;
-      display: flex; align-items: center; justify-content: center;
-    }
-
-    .other-section {
-      margin-top: 20px;
-      padding-top: 18px;
-      border-top: 1px solid var(--border);
-    }
-    .other-label {
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.09em;
-      text-transform: uppercase;
-      color: #4b5563;
-      margin-bottom: 10px;
-    }
-    .other-links { display: flex; gap: 8px; }
-    .other-link {
-      flex: 1;
-      padding: 9px 10px;
-      border-radius: 9px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: var(--muted);
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-decoration: none;
-      text-align: center;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-    }
-    .other-link:hover { background: rgba(255,255,255,0.07); color: var(--text); border-color: rgba(255,255,255,0.15); }
 
     /* ── STEPS TIMELINE ── */
     .steps-heading {
@@ -516,10 +462,6 @@
           </div>`;
       }
       const m = META[os];
-      const others = Object.entries(META).filter(([k]) => k !== os);
-      const otherLinks = others.map(([k, v]) =>
-        `<a class="other-link" href="/api/employee/${v.slug}.zip">${v.icon}&nbsp; ${v.label}</a>`
-      ).join('');
       return `
         <div class="dl-card">
           <div class="dl-card-top">
@@ -530,16 +472,6 @@
             </div>
           </div>
           <a class="dl-btn ${os}" href="/api/employee/${m.slug}.zip">⬇ &nbsp;Download ${m.label} Installer</a>
-        </div>
-        <div class="feat-list">
-          <div class="feat-item"><div class="feat-icon">✓</div>One click — browser opens, rest runs silently</div>
-          <div class="feat-item"><div class="feat-icon">✓</div>Python, packages &amp; Tesseract auto-installed</div>
-          <div class="feat-item"><div class="feat-icon">✓</div>Starts automatically on every login</div>
-          <div class="feat-item"><div class="feat-icon">✓</div>No windows, no prompts, no user action needed</div>
-        </div>
-        <div class="other-section">
-          <div class="other-label">Other platforms</div>
-          <div class="other-links">${otherLinks}</div>
         </div>`;
     }
 
