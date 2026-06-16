@@ -1105,7 +1105,7 @@ def main():
     if '--no-run' not in sys.argv:
         # For brand-new installs, open the setup page so the employee can register.
         # Re-runs skip this — same user is preserved, no duplicate created.
-        if not already_installed and '--no-browser' not in sys.argv:
+        if not already_installed and '--no-browser' not in sys.argv and os.environ.get('SKIP_SETUP_OPEN') != '1':
             ctx_path = script_dir() / 'activity_data' / 'install_context.json'
             backend_url = os.environ.get('BACKEND_URL', '').strip()
             install_id = ''
