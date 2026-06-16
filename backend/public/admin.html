@@ -1143,18 +1143,18 @@
     }
 
     function buildAppUsage(reports) {
-      const totals = new Map();
-      let overall = 0;
+      const counts = new Map();
+      const secs   = new Map();
       reports.forEach(report => {
         const name = (report.active_app || 'Unknown').trim() || 'Unknown';
-        const seconds = Number(report.time_active_sec || 0);
-        overall += seconds;
-        totals.set(name, (totals.get(name) || 0) + seconds);
+        counts.set(name, (counts.get(name) || 0) + 1);
+        secs.set(name,   (secs.get(name)   || 0) + Number(report.time_active_sec || 0));
       });
 
-      return Array.from(totals.entries())
-        .map(([name, seconds]) => ({ name, seconds, pct: overall > 0 ? (seconds / overall) * 100 : 0 }))
-        .sort((a, b) => b.seconds - a.seconds)
+      const totalCount = reports.length || 1;
+      return Array.from(counts.entries())
+        .map(([name, cnt]) => ({ name, count: cnt, seconds: secs.get(name) || 0, pct: (cnt / totalCount) * 100 }))
+        .sort((a, b) => b.count - a.count)
         .slice(0, 6);
     }
 
@@ -1336,18 +1336,37 @@
 
       if (appUsageChart) appUsageChart.destroy();
 
-      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4'];
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
+
+      // Add "Others" to fill the donut to 100% when top-N apps don't cover everything
+      const topSum = appUsage.reduce((s, item) => s + item.pct, 0);
+      const othersDisplay = [];
+      const othersColor = [];
+      if (topSum < 99.5) {
+        othersDisplay.push({ name: 'Others', pct: 100 - topSum });
+        othersColor.push(colors[colors.length - 1]);
+      }
+      const allItems   = [...appUsage, ...othersDisplay];
+      const allColors  = [...appUsage.map((_, i) => colors[i % (colors.length - 1)]), ...othersColor];
+
       appUsageChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
-          labels: appUsage.map(item => item.name),
-          datasets: [{ data: appUsage.map(item => item.pct), backgroundColor: colors, borderWidth: 0 }]
+          labels: allItems.map(item => item.name),
+          datasets: [{ data: allItems.map(item => Number(item.pct.toFixed(1))), backgroundColor: allColors, borderWidth: 0 }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           cutout: '68%',
-          plugins: { legend: { display: false } }
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ` ${ctx.label}: ${Number(ctx.raw).toFixed(1)}%`
+              }
+            }
+          }
         }
       });
 
@@ -1355,8 +1374,8 @@
         ? appUsage.map((item, index) => `
             <div class="app-row">
               <div class="name" title="${item.name}">${item.name}</div>
-              <div class="bar-track"><div class="bar-fill" style="width: ${Math.max(6, item.pct)}%; background: ${colors[index % colors.length]};"></div></div>
-              <div style="text-align:right; color: var(--text-muted);">${item.pct.toFixed(0)}%</div>
+              <div class="bar-track"><div class="bar-fill" style="width: ${Math.max(4, item.pct)}%; background: ${allColors[index]};"></div></div>
+              <div style="text-align:right; color: var(--text-muted); min-width:36px;">${item.pct.toFixed(0)}%</div>
             </div>
           `).join('')
         : '<div style="color: var(--text-muted); font-size: 0.85rem;">No app usage data found.</div>';
@@ -1755,15 +1774,16 @@
       document.getElementById('insName').textContent = `User ${_currentModalUserId}`;
 
       if (shouldRegen) {
-        content.innerHTML = '<div style="text-align:center; padding: 50px; color: var(--text-muted);">🔄 Regenerating summary via Llama 3...</div>';
+        content.innerHTML = '<div style="text-align:center; padding: 50px; color: var(--text-muted);">🔄 Rebuilding insights from activity logs…</div>';
       }
 
       try {
         const [summaryResponse, weeklyReports] = await Promise.all([
-          fetch(`/api/admin/summary/${_currentModalCompId}/${_currentModalUserId}?date=${date}&regen=${shouldRegen}&tz_offset=${encodeURIComponent(tzOffset)}`),
+          fetch(`/api/admin/summary/${encodeURIComponent(_currentModalCompId)}/${encodeURIComponent(_currentModalUserId)}?date=${date}&regen=${shouldRegen}&tz_offset=${encodeURIComponent(tzOffset)}`),
           loadWeeklyReports().catch(() => [])
         ]);
         const data = await summaryResponse.json();
+        if (!summaryResponse.ok) throw new Error(data.error || `Server error ${summaryResponse.status}`);
         const text = data.summary || 'No summary available for this date.';
 
         _lastSummaryContextKey = contextKey;
@@ -1775,8 +1795,10 @@
         if (window.currentReports) {
           renderPerformanceDashboard(window.currentReports, weeklyReports);
         }
+        if (regen) showToast('Insights refreshed successfully.');
       } catch (err) {
         content.innerHTML = '<div style="text-align:center; padding: 50px; color: #ef4444;">Error generating summary.</div>';
+        if (regen) showToast(`Regenerate failed: ${err.message}`);
       }
     }
 
