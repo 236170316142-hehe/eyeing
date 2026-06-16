@@ -880,9 +880,12 @@ If Not isReinstall Then
   ws.Run setupUrl, 1, False
 End If
 
-' Run install.bat completely hidden — no window ever appears
+' Run install.bat completely hidden — no window ever appears.
+' Set SKIP_SETUP_OPEN via ws.Environment so child processes inherit it cleanly,
+' then use "cmd /c call" which reliably handles quoted paths with spaces.
 batFile = baseDir & "eyeing\\install.bat"
-ws.Run "cmd /c set ""SKIP_SETUP_OPEN=1"" & call """ & batFile & """", 0, False
+ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
+ws.Run "cmd /c call """ & batFile & """", 0, False
 `;
 }
 
