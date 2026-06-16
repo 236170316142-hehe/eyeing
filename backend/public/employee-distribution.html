@@ -4,218 +4,240 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Employee Installer — Distribution Portal</title>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #060c16;
-      --panel: rgba(10, 18, 34, 0.85);
-      --border: rgba(255,255,255,0.08);
-      --text: #f1f5f9;
-      --muted: #8897aa;
-      --win: #3b82f6;
-      --mac: #a78bfa;
-      --lin: #f97316;
+      --bg:       #05090f;
+      --surface:  rgba(10, 17, 32, 0.92);
+      --surface2: rgba(14, 22, 40, 0.55);
+      --border:   rgba(255,255,255,0.08);
+      --border2:  rgba(255,255,255,0.05);
+      --text:     #f1f5f9;
+      --text2:    #94a3b8;
+      --text3:    #5a6a7f;
+      --green:    #10b981;
+      --win:      #3b82f6;
+      --mac:      #8b5cf6;
+      --lin:      #f97316;
+      --radius:   18px;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       min-height: 100vh;
-      font-family: 'Outfit', sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(ellipse 70% 50% at 0% 0%,   rgba(6,182,212,0.13), transparent),
-        radial-gradient(ellipse 60% 60% at 100% 100%, rgba(37,99,235,0.16), transparent),
+        radial-gradient(ellipse 90% 55% at -5% -5%,  rgba(6,182,212,0.09) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 65% at 105% 105%, rgba(37,99,235,0.13) 0%, transparent 55%),
         var(--bg);
-      display: grid;
-      place-items: center;
-      padding: 28px 16px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 44px 20px 72px;
     }
 
-    /* ── SHELL ── */
+    /* ─── SHELL ─────────────────────────────────────────────── */
     .shell {
-      width: min(1080px, 100%);
-      border-radius: 22px;
+      width: 100%;
+      max-width: 1120px;
+      border-radius: var(--radius);
       border: 1px solid var(--border);
-      background: var(--panel);
-      box-shadow: 0 32px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+      background: var(--surface);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.03) inset,
+        0 48px 120px rgba(0,0,0,0.65),
+        0 8px 32px  rgba(0,0,0,0.35);
+      backdrop-filter: blur(28px);
       overflow: hidden;
-      backdrop-filter: blur(22px);
     }
 
-    /* ── HEADER ── */
+    /* ─── HEADER ─────────────────────────────────────────────── */
     .hdr {
-      padding: 22px 30px;
+      padding: 26px 36px;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 14px;
+      gap: 16px;
       flex-wrap: wrap;
-      background: rgba(255,255,255,0.015);
+      background: rgba(255,255,255,0.013);
     }
 
-    .hdr h1 {
-      font-size: 1.45rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-
-    .hdr p {
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 0.86rem;
-    }
-
-    .live-pill {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 0.76rem;
+    .hdr-title {
+      font-size: 1.55rem;
       font-weight: 700;
-      padding: 6px 13px;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      color: var(--text);
+    }
+
+    .hdr-sub {
+      margin-top: 5px;
+      color: var(--text2);
+      font-size: 0.875rem;
+      font-weight: 400;
+      line-height: 1.5;
+    }
+
+    /* Live badge */
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 7px 15px;
       border-radius: 999px;
-      border: 1px solid rgba(16,185,129,0.3);
-      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.22);
+      background: rgba(16,185,129,0.07);
       color: #6ee7b7;
       white-space: nowrap;
+      box-shadow: 0 0 20px rgba(16,185,129,0.08), inset 0 1px 0 rgba(16,185,129,0.1);
+      letter-spacing: 0.025em;
     }
-
-    .live-pill::before {
-      content: '';
-      width: 6px;
-      height: 6px;
+    .live-dot {
+      width: 7px; height: 7px;
       border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 5px #10b981;
-      animation: blink 2s ease-in-out infinite;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green), 0 0 14px rgba(16,185,129,0.45);
+      animation: pulse 2.2s ease-in-out infinite;
     }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.82)} }
 
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
-
-    /* ── OS BANNER ── */
+    /* ─── OS BANNER ──────────────────────────────────────────── */
     .os-strip {
-      padding: 10px 30px;
+      padding: 11px 36px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 0.86rem;
-      color: var(--muted);
-      min-height: 40px;
+      font-size: 0.875rem;
+      color: var(--text2);
+      background: rgba(255,255,255,0.007);
+      min-height: 44px;
     }
 
     .os-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      letter-spacing: 0.01em;
+      display: inline-flex; align-items: center; gap: 5px;
+      font-weight: 600; padding: 3px 11px;
+      border-radius: 7px; font-size: 0.8rem; letter-spacing: 0.01em;
     }
-    .os-chip.win { background:rgba(59,130,246,0.18); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); }
-    .os-chip.mac { background:rgba(167,139,250,0.18); color:#c4b5fd; border:1px solid rgba(167,139,250,0.3); }
-    .os-chip.lin { background:rgba(249,115,22,0.15);  color:#fdba74; border:1px solid rgba(249,115,22,0.3);  }
-    .os-chip.unk { background:rgba(255,255,255,0.07); color:#94a3b8;  border:1px solid rgba(255,255,255,0.1); }
+    .os-chip.win { background:rgba(59,130,246,0.14); color:#93c5fd; border:1px solid rgba(59,130,246,0.22); }
+    .os-chip.mac { background:rgba(139,92,246,0.14); color:#c4b5fd; border:1px solid rgba(139,92,246,0.22); }
+    .os-chip.lin { background:rgba(249,115,22,0.11); color:#fdba74; border:1px solid rgba(249,115,22,0.22); }
+    .os-chip.unk { background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.09); }
 
-    /* ── BODY ── */
+    /* ─── BODY ───────────────────────────────────────────────── */
     .body {
       display: grid;
-      grid-template-columns: 0.75fr 1.25fr;
+      grid-template-columns: 320px 1fr;
     }
 
-    .pane-l { padding: 30px; border-right: 1px solid var(--border); min-width: 0; }
-    .pane-r { padding: 30px; background: rgba(255,255,255,0.012); min-width: 0; overflow-x: hidden; }
+    /* ─── LEFT PANE ──────────────────────────────────────────── */
+    .pane-l {
+      padding: 30px 26px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
 
-    /* ── DOWNLOAD CARD ── */
+    /* ─── DOWNLOAD CARD ──────────────────────────────────────── */
     .dl-card {
-      border-radius: 16px;
-      border: 1px solid var(--border);
+      border-radius: 15px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 6px 28px rgba(0,0,0,0.25);
       overflow: hidden;
-      background: rgba(255,255,255,0.025);
+      transition: box-shadow 0.22s, border-color 0.22s;
+    }
+    .dl-card:hover {
+      box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 10px 40px rgba(0,0,0,0.35);
+      border-color: rgba(255,255,255,0.14);
     }
 
     .dl-card-top {
-      padding: 18px 20px;
+      padding: 22px 22px 20px;
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 16px;
     }
 
     .os-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 11px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.3rem;
-      flex-shrink: 0;
-      font-weight: 800;
+      width: 52px; height: 52px;
+      border-radius: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.45rem; font-weight: 800; flex-shrink: 0;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
     }
-    .os-icon.win { background:rgba(59,130,246,0.15);  color:var(--win); }
-    .os-icon.mac { background:rgba(167,139,250,0.15); color:var(--mac); }
-    .os-icon.lin { background:rgba(249,115,22,0.15);  color:var(--lin); }
+    .os-icon.win { background:linear-gradient(145deg,rgba(59,130,246,0.28),rgba(37,99,235,0.14)); color:#60a5fa; border:1px solid rgba(59,130,246,0.18); }
+    .os-icon.mac { background:linear-gradient(145deg,rgba(139,92,246,0.28),rgba(109,40,217,0.14)); color:#a78bfa; border:1px solid rgba(139,92,246,0.18); }
+    .os-icon.lin { background:linear-gradient(145deg,rgba(249,115,22,0.22),rgba(194,65,12,0.12));  color:#fb923c; border:1px solid rgba(249,115,22,0.18); }
 
-    .os-label { font-size: 1.05rem; font-weight: 800; }
-    .os-sub   { margin-top: 1px; font-size: 0.8rem; color: var(--muted); }
+    .os-info { min-width: 0; }
+    .os-label { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; }
+    .os-sub   { margin-top: 3px; font-size: 0.775rem; color: var(--text3); }
+
+    .dl-divider { height: 1px; background: var(--border); }
 
     .dl-btn {
-      display: block;
-      width: 100%;
-      padding: 14px 20px;
-      font-family: inherit;
-      font-size: 0.95rem;
-      font-weight: 700;
-      text-align: center;
-      text-decoration: none;
-      border: none;
-      border-top: 1px solid var(--border);
-      color: #fff;
-      cursor: pointer;
-      transition: filter 0.18s, transform 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      width: 100%; padding: 14px 20px;
+      font-family: inherit; font-size: 0.9rem; font-weight: 600;
+      text-align: center; text-decoration: none;
+      border: none; color: #fff; cursor: pointer;
+      transition: filter 0.18s, opacity 0.18s;
       letter-spacing: 0.01em;
     }
-    .dl-btn:hover  { filter: brightness(1.13); transform: translateY(-1px); }
-    .dl-btn:active { transform: translateY(0); }
-    .dl-btn.win { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-    .dl-btn.mac { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
-    .dl-btn.lin { background: linear-gradient(135deg, #ea580c, #c2410c); }
+    .dl-btn:hover  { filter: brightness(1.12); }
+    .dl-btn:active { filter: brightness(0.95); }
+    .dl-btn.win { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+    .dl-btn.mac { background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); }
+    .dl-btn.lin { background: linear-gradient(135deg, #f97316 0%, #c2410c 100%); }
 
     /* multi-OS fallback */
     .multi-grid { display: grid; gap: 10px; }
-    .multi-grid .dl-btn { border-radius: 12px; border: 1px solid var(--border); }
+    .multi-grid .dl-btn { border-radius: 11px; border: 1px solid var(--border); }
 
     .dl-note {
-      margin-top: 14px;
-      font-size: 0.81rem;
-      color: var(--muted);
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 12px 14px;
+      border-radius: 11px;
+      border: 1px solid var(--border2);
+      background: rgba(255,255,255,0.015);
+      font-size: 0.79rem;
+      color: var(--text3);
       line-height: 1.6;
-      display: flex;
-      gap: 7px;
-      align-items: flex-start;
     }
-    .dl-note::before { content:'⚡'; flex-shrink:0; }
+    .dl-note-icon { flex-shrink: 0; font-size: 0.82rem; margin-top: 1px; }
 
+    /* ─── RIGHT PANE ─────────────────────────────────────────── */
+    .pane-r {
+      padding: 30px 36px;
+      min-width: 0;
+      overflow-x: hidden;
+    }
 
-    /* ── STEPS TIMELINE ── */
+    /* ─── STEPS TIMELINE ─────────────────────────────────────── */
     .steps-heading {
-      font-size: 0.73rem;
-      font-weight: 700;
+      font-size: 0.69rem;
+      font-weight: 600;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #4b5563;
-      margin-bottom: 20px;
+      color: var(--text3);
+      margin-bottom: 28px;
     }
 
     .steps { list-style: none; }
 
     .step {
       display: flex;
-      gap: 13px;
-      padding-bottom: 20px;
+      gap: 16px;
+      padding-bottom: 26px;
       position: relative;
     }
     .step:last-child { padding-bottom: 0; }
@@ -223,89 +245,107 @@
     .step:not(:last-child)::after {
       content: '';
       position: absolute;
-      left: 14px;
-      top: 30px;
-      bottom: 0;
-      width: 2px;
-      background: linear-gradient(to bottom, rgba(255,255,255,0.09), transparent);
+      left: 15px; top: 33px; bottom: 0;
+      width: 1.5px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.09) 0%, transparent 100%);
     }
 
     .step-num {
       flex-shrink: 0;
-      width: 30px;
-      height: 30px;
+      width: 32px; height: 32px;
       border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 0.8rem;
-      border: 2px solid;
-      position: relative;
-      z-index: 1;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.8rem;
+      border: 1.5px solid; position: relative; z-index: 1;
     }
-    .step-num.win { background:rgba(59,130,246,0.14);  border-color:rgba(59,130,246,0.4);  color:#93c5fd; }
-    .step-num.mac { background:rgba(167,139,250,0.14); border-color:rgba(167,139,250,0.4); color:#c4b5fd; }
-    .step-num.lin { background:rgba(249,115,22,0.14);  border-color:rgba(249,115,22,0.4);  color:#fdba74; }
+    .step-num.win { background:rgba(59,130,246,0.11); border-color:rgba(59,130,246,0.32); color:#93c5fd; }
+    .step-num.mac { background:rgba(139,92,246,0.11); border-color:rgba(139,92,246,0.32); color:#c4b5fd; }
+    .step-num.lin { background:rgba(249,115,22,0.11); border-color:rgba(249,115,22,0.32); color:#fdba74; }
 
-    .step-body { padding-top: 3px; min-width: 0; }
-    .step-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 3px; color: var(--text); }
-    .step-desc  { color: var(--muted); font-size: 0.84rem; line-height: 1.6; overflow-wrap: break-word; }
+    .step-body { padding-top: 4px; min-width: 0; flex: 1; }
+    .step-title {
+      font-weight: 600; font-size: 0.94rem; margin-bottom: 5px;
+      color: var(--text); letter-spacing: -0.01em;
+    }
+    .step-desc {
+      color: var(--text2); font-size: 0.845rem; line-height: 1.65;
+      overflow-wrap: break-word; word-break: break-word;
+    }
 
     .step-desc ic {
-      display: inline;
-      padding: 1px 7px;
-      border-radius: 5px;
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.1);
-      color: #cbd5e1;
-      font-size: 0.81rem;
-      font-family: 'Courier New', monospace;
-      white-space: nowrap;
+      display: inline; padding: 2px 8px; border-radius: 5px;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+      color: #cbd5e1; font-size: 0.79rem;
+      font-family: 'Courier New', monospace; white-space: nowrap;
     }
 
-    /* ── TIP BLOCK ── */
+    /* ─── TIP / POWERSHELL ───────────────────────────────────── */
     .tip {
-      margin-top: 20px;
-      padding: 14px 16px;
-      border-radius: 12px;
+      margin-top: 28px;
+      border-radius: 13px;
       border: 1px solid rgba(255,255,255,0.07);
-      background: rgba(255,255,255,0.022);
+      background: rgba(3,8,18,0.55);
+      overflow: hidden;
+    }
+
+    .tip-header {
+      padding: 11px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
 
     .tip-title {
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #475569;
-      margin-bottom: 8px;
+      font-size: 0.7rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text3);
     }
 
     .tip-body {
-      color: var(--muted);
-      font-size: 0.83rem;
-      line-height: 1.55;
-      margin-bottom: 8px;
+      padding: 12px 16px 6px;
+      color: var(--text2); font-size: 0.83rem; line-height: 1.55;
     }
+
+    .code-wrap { position: relative; }
 
     .tip code {
       display: block;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.07);
-      background: rgba(2,6,23,0.7);
+      padding: 12px 50px 12px 16px;
       color: #94a3b8;
       font-size: 0.8rem;
       font-family: 'Courier New', monospace;
-      overflow-x: auto;
-      white-space: pre;
-      word-break: normal;
+      overflow-x: auto; white-space: pre; word-break: normal;
+      background: rgba(2,5,14,0.6);
+      line-height: 1.65;
     }
 
-    @media (max-width: 860px) {
+    .copy-btn {
+      position: absolute; top: 8px; right: 10px;
+      padding: 4px 11px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.06);
+      color: var(--text2);
+      font-size: 0.71rem; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .copy-btn:hover { background: rgba(255,255,255,0.11); color: var(--text); }
+    .copy-btn.copied {
+      color: #6ee7b7;
+      border-color: rgba(16,185,129,0.28);
+      background: rgba(16,185,129,0.07);
+    }
+
+    /* ─── RESPONSIVE ─────────────────────────────────────────── */
+    @media (max-width: 960px) {
+      body { padding: 20px 12px 48px; }
+      .hdr { padding: 20px 22px; }
+      .hdr-title { font-size: 1.3rem; }
+      .os-strip { padding: 10px 22px; }
       .body { grid-template-columns: 1fr; }
-      .pane-l { border-right: none; border-bottom: 1px solid var(--border); }
+      .pane-l { padding: 24px 22px; border-right: none; border-bottom: 1px solid var(--border); }
+      .pane-r { padding: 24px 22px; }
       .multi-grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -315,10 +355,13 @@
 
     <header class="hdr">
       <div>
-        <h1>Employee Installer Distribution</h1>
-        <p>Live build from the Render backend — always includes the latest monitor and configuration.</p>
+        <div class="hdr-title">Employee Installer Distribution</div>
+        <div class="hdr-sub">Live build from the Render backend — always includes the latest monitor and configuration.</div>
       </div>
-      <div class="live-pill">Live &amp; Ready</div>
+      <div class="live-pill">
+        <span class="live-dot"></span>
+        Live &amp; Ready
+      </div>
     </header>
 
     <div class="os-strip" id="osBanner">
@@ -329,7 +372,10 @@
 
       <div class="pane-l">
         <div id="downloadArea"></div>
-        <p class="dl-note">Every download is freshly generated — employees always get the current monitor version and backend URL baked in.</p>
+        <div class="dl-note">
+          <span class="dl-note-icon">⚡</span>
+          <span>Every download is freshly generated — employees always get the current monitor version and backend URL baked in.</span>
+        </div>
       </div>
 
       <div class="pane-r">
@@ -344,121 +390,67 @@
   <script>
     const origin = window.location.origin;
 
-    /* ── OS detection ── */
     function detectOs() {
-      const ua = navigator.userAgent || '';
-      const pl = navigator.platform   || '';
-      if (/Win/i.test(pl)  || /Windows/i.test(ua))   return 'win';
-      if (/Mac/i.test(pl)  || /Macintosh/i.test(ua)) return 'mac';
-      if (/Linux/i.test(pl)|| /X11/i.test(ua))       return 'lin';
+      const ua = navigator.userAgent || '', pl = navigator.platform || '';
+      if (/Win/i.test(pl)   || /Windows/i.test(ua))   return 'win';
+      if (/Mac/i.test(pl)   || /Macintosh/i.test(ua)) return 'mac';
+      if (/Linux/i.test(pl) || /X11/i.test(ua))       return 'lin';
       return null;
     }
 
-    /* ── metadata ── */
     const META = {
       win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Includes Setup.vbs' },
       mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Includes install.command' },
       lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Includes install.sh' },
     };
 
-    /* ── per-OS steps ── */
     const STEPS = {
       win: [
-        {
-          t: 'Download the Windows ZIP',
-          d: 'Click the download button on the left.'
-        },
-        {
-          t: 'Extract the ZIP',
-          d: 'Right-click the file → <em>Extract All</em> and choose a destination folder.'
-        },
-        {
-          t: 'Double-click Setup.vbs',
-          d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background — no windows, no prompts required.'
-        },
-        {
-          t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
-        },
-        {
-          t: 'Done',
-          d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot.'
-        }
+        { t: 'Download the Windows ZIP',  d: 'Click the download button on the left.' },
+        { t: 'Extract the ZIP',           d: 'Right-click the file → <em>Extract All</em> and choose a destination folder.' },
+        { t: 'Double-click Setup.vbs',    d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background — no windows, no prompts required.' },
+        { t: 'Complete the setup form',   d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
+        { t: 'Done',                      d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot.' }
       ],
       mac: [
-        {
-          t: 'Download the macOS ZIP',
-          d: 'Click the download button on the left.'
-        },
-        {
-          t: 'Extract the ZIP',
-          d: 'Double-click the ZIP — macOS extracts it to the same folder automatically.'
-        },
-        {
-          t: 'Double-click install.command',
-          d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background. If macOS blocks it, right-click → <em>Open</em>, then click <em>Open</em>.'
-        },
-        {
-          t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
-        },
-        {
-          t: 'Done',
-          d: 'The monitor runs silently and auto-starts after every login via a macOS LaunchAgent.'
-        }
+        { t: 'Download the macOS ZIP',       d: 'Click the download button on the left.' },
+        { t: 'Extract the ZIP',              d: 'Double-click the ZIP — macOS extracts it to the same folder automatically.' },
+        { t: 'Double-click install.command', d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background. If macOS blocks it, right-click → <em>Open</em>, then click <em>Open</em>.' },
+        { t: 'Complete the setup form',      d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
+        { t: 'Done',                         d: 'The monitor runs silently and auto-starts after every login via a macOS LaunchAgent.' }
       ],
       lin: [
-        {
-          t: 'Download the Linux ZIP',
-          d: 'Click the download button on the left.'
-        },
-        {
-          t: 'Extract the ZIP',
-          d: 'Run <ic>unzip employee-monitor-linux.zip -d eyeing</ic> in a terminal, or use your file manager.'
-        },
-        {
-          t: 'Run the installer',
-          d: 'Open a terminal inside the extracted folder and run <ic>bash install.sh</ic>. Your browser opens automatically and all dependencies install silently in the background.'
-        },
-        {
-          t: 'Complete the setup form',
-          d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.'
-        },
-        {
-          t: 'Done',
-          d: 'The monitor starts in the background and auto-starts after every reboot via systemd or cron.'
-        }
+        { t: 'Download the Linux ZIP', d: 'Click the download button on the left.' },
+        { t: 'Extract the ZIP',        d: 'Run <ic>unzip employee-monitor-linux.zip -d eyeing</ic> in a terminal, or use your file manager.' },
+        { t: 'Run the installer',      d: 'Open a terminal inside the extracted folder and run <ic>bash install.sh</ic>. Your browser opens automatically and all dependencies install silently in the background.' },
+        { t: 'Complete the setup form',d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
+        { t: 'Done',                   d: 'The monitor starts in the background and auto-starts after every reboot via systemd or cron.' }
       ]
     };
 
-    /* ── per-OS tips ── */
     const TIPS = {
       win: {
-        title: 'Remote install via PowerShell (optional)',
+        title: 'Remote Install via PowerShell (Optional)',
         body:  'Deploy to a remote PC without physical access:',
-        get code() {
-          return `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\eb.ps1; & $env:TEMP\\eb.ps1"`;
-        }
+        get code() { return `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\eb.ps1; & $env:TEMP\\eb.ps1"`; }
       },
       mac: {
-        title: 'Quarantine fix — if install.command is blocked',
+        title: 'Quarantine Fix — if install.command is blocked',
         body:  'Open Terminal in the extracted folder and run:',
         code:  'xattr -dr com.apple.quarantine .\nchmod +x install.sh install.command\n./install.command'
       },
       lin: null
     };
 
-    /* ── builders ── */
+    const DL_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`;
+
     function buildDownload(os) {
       if (!os) {
-        return `
-          <p style="color:var(--muted);font-size:.86rem;margin-bottom:12px;">
-            Could not detect your OS — choose the correct platform below:
-          </p>
+        return `<p style="color:var(--text2);font-size:.875rem;margin-bottom:14px;">Could not detect your OS — choose a platform:</p>
           <div class="multi-grid">
-            <a class="dl-btn win" href="/api/employee/windows.zip">⬇ Download Windows ZIP</a>
-            <a class="dl-btn mac" href="/api/employee/macos.zip">⬇ Download macOS ZIP</a>
-            <a class="dl-btn lin" href="/api/employee/linux.zip">⬇ Download Linux ZIP</a>
+            <a class="dl-btn win" href="/api/employee/windows.zip">${DL_ICON} Download Windows ZIP</a>
+            <a class="dl-btn mac" href="/api/employee/macos.zip">${DL_ICON} Download macOS ZIP</a>
+            <a class="dl-btn lin" href="/api/employee/linux.zip">${DL_ICON} Download Linux ZIP</a>
           </div>`;
       }
       const m = META[os];
@@ -466,19 +458,18 @@
         <div class="dl-card">
           <div class="dl-card-top">
             <div class="os-icon ${os}">${m.icon}</div>
-            <div>
+            <div class="os-info">
               <div class="os-label">${m.label} Package</div>
               <div class="os-sub">${m.sub}</div>
             </div>
           </div>
-          <a class="dl-btn ${os}" href="/api/employee/${m.slug}.zip">⬇ &nbsp;Download ${m.label} Installer</a>
+          <div class="dl-divider"></div>
+          <a class="dl-btn ${os}" href="/api/employee/${m.slug}.zip">${DL_ICON} Download ${m.label} Installer</a>
         </div>`;
     }
 
     function buildSteps(os) {
-      if (!os) {
-        return `<li class="step"><div class="step-body"><div class="step-desc" style="color:#475569">Select your OS above to see step-by-step instructions.</div></div></li>`;
-      }
+      if (!os) return `<li class="step"><div class="step-body"><div class="step-desc" style="color:var(--text3)">Select your OS above to see step-by-step instructions.</div></div></li>`;
       return STEPS[os].map((s, i) => `
         <li class="step">
           <div class="step-num ${os}">${i + 1}</div>
@@ -494,37 +485,61 @@
       if (!t) return '';
       return `
         <div class="tip">
-          <div class="tip-title">${t.title}</div>
+          <div class="tip-header">
+            <div class="tip-title">${t.title}</div>
+          </div>
           <div class="tip-body">${t.body}</div>
-          <code id="tipCode"></code>
+          <div class="code-wrap">
+            <code id="tipCode"></code>
+            <button class="copy-btn" id="copyBtn" onclick="copyCode()">Copy</button>
+          </div>
         </div>`;
     }
 
     /* ── render ── */
     const os = detectOs();
-    const banner = document.getElementById('osBanner');
 
     if (os) {
       const m = META[os];
-      banner.innerHTML = `Detected: <span class="os-chip ${os}">${m.icon}&nbsp;${m.label}</span> &nbsp;—&nbsp; showing the installer and guide for your platform.`;
+      document.getElementById('osBanner').innerHTML =
+        `Detected: <span class="os-chip ${os}">${m.icon}&nbsp;${m.label}</span> &nbsp;—&nbsp; showing the installer and guide for your platform.`;
     } else {
-      banner.innerHTML = `<span class="os-chip unk">OS unknown</span> &nbsp;—&nbsp; could not detect your platform automatically.`;
+      document.getElementById('osBanner').innerHTML =
+        `<span class="os-chip unk">OS unknown</span> &nbsp;—&nbsp; could not detect your platform automatically.`;
     }
 
     document.getElementById('downloadArea').innerHTML = buildDownload(os);
-
-    if (os) {
-      document.getElementById('stepsHeading').textContent = `Installation Steps — ${META[os].label}`;
-    }
+    if (os) document.getElementById('stepsHeading').textContent = `Installation Steps — ${META[os].label}`;
     document.getElementById('stepsList').innerHTML = buildSteps(os);
 
     const tipHtml = buildTip(os);
     document.getElementById('tipArea').innerHTML = tipHtml;
-
-    /* set code textContent after inserting (safe, avoids HTML injection) */
     if (tipHtml && os && TIPS[os]) {
       const el = document.getElementById('tipCode');
       if (el) el.textContent = TIPS[os].code;
+    }
+
+    function copyCode() {
+      const el  = document.getElementById('tipCode');
+      const btn = document.getElementById('copyBtn');
+      if (!el || !btn) return;
+      const done = () => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(el.textContent).then(done).catch(() => fallback(el.textContent, done));
+      } else {
+        fallback(el.textContent, done);
+      }
+    }
+    function fallback(text, cb) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try { document.execCommand('copy'); cb(); } catch(e) {}
+      document.body.removeChild(ta);
     }
   </script>
 </body>
