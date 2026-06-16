@@ -847,20 +847,20 @@ function buildWindowsVbsLauncher(origin) {
 ' Double-click Setup.vbs to install.
 ' The setup page opens in your browser; everything else runs silently in the background.
 Option Explicit
-Dim ws, fso, dir, bat, backendUrl, deviceId, installId, setupUrl, urlFile, f
+Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f
 
 Set ws  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-dir = fso.GetParentFolderName(WScript.ScriptFullName) & "\\"
+baseDir = fso.GetParentFolderName(WScript.ScriptFullName) & "\\"
 
 backendUrl = "${backendUrl}"
-urlFile = dir & "eyeing\\backend_url.txt"
+urlFile = baseDir & "eyeing\\backend_url.txt"
 If fso.FileExists(urlFile) Then
   Set f = fso.OpenTextFile(urlFile, 1)
-  Dim u : u = Trim(f.ReadAll())
+  Dim urlLine : urlLine = Trim(f.ReadAll())
   f.Close
-  If u <> "" Then backendUrl = u
+  If urlLine <> "" Then backendUrl = urlLine
 End If
 
 deviceId  = ws.ExpandEnvironmentStrings("%COMPUTERNAME%")
@@ -868,12 +868,13 @@ Randomize
 installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
 setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
 
-' Open setup page immediately in default browser
-ws.Run "cmd /c start """" """ & setupUrl & """", 0, False
+' Open setup page in default browser — ws.Run with a URL invokes the shell directly,
+' so & in the query string is never misread as a cmd separator.
+ws.Run setupUrl, 1, False
 
 ' Run install.bat completely hidden — no window ever appears
-bat = dir & "eyeing\\install.bat"
-ws.Run "cmd /c set ""SKIP_SETUP_OPEN=1"" & call """ & bat & """", 0, False
+batFile = baseDir & "eyeing\\install.bat"
+ws.Run "cmd /c set ""SKIP_SETUP_OPEN=1"" & call """ & batFile & """", 0, False
 `;
 }
 
