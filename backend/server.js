@@ -847,7 +847,7 @@ function buildWindowsVbsLauncher(origin) {
 ' Double-click Setup.vbs to install.
 ' The setup page opens in your browser; everything else runs silently in the background.
 Option Explicit
-Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f, permDir
+Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f, permDir, tmpBat, tf
 
 Set ws  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -882,12 +882,17 @@ If Not isReinstall Then
   ws.Run setupUrl, 1, False
 End If
 
-' Run install.bat completely hidden — no window ever appears.
-' Set SKIP_SETUP_OPEN via ws.Environment so child processes inherit it cleanly,
-' then use "cmd /c call" which reliably handles quoted paths with spaces.
+' Run install.bat hidden. Write a trampoline to %TEMP% (guaranteed no parens/spaces)
+' so cmd.exe never chokes on special chars in the extraction folder name.
 batFile = baseDir & "eyeing\\install.bat"
 ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
-ws.Run "cmd /c call """ & batFile & """", 0, False
+
+tmpBat = ws.ExpandEnvironmentStrings("%TEMP%") & "\\em_launch.bat"
+Set tf = fso.CreateTextFile(tmpBat, True)
+tf.WriteLine "@echo off"
+tf.WriteLine "call """ & batFile & """"
+tf.Close
+ws.Run "cmd /c """ & tmpBat & """", 0, False
 `;
 }
 

