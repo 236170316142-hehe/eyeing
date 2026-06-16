@@ -467,15 +467,17 @@
     .heatmap-cell[data-level='4'] { background: rgba(16,185,129,0.62); }
     .heatmap-legend { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top: 10px; font-size: 0.72rem; color: var(--text-muted); }
     .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
-    .app-breakdown { display:grid; grid-template-columns: minmax(220px, 1fr) 1fr; gap: 14px; align-items: center; min-height: 240px; }
-    .app-list { display:flex; flex-direction:column; gap: 8px; }
+    .app-breakdown { display:grid; grid-template-columns: minmax(200px, 1.1fr) 1fr; gap: 18px; align-items: center; min-height: 240px; }
+    .app-list { display:flex; flex-direction:column; gap: 6px; }
     .app-row {
-      display:grid; grid-template-columns: 90px 1fr 52px; gap: 8px; align-items:center;
-      font-size: 0.8rem;
+      display:grid; grid-template-columns: 11px 1fr auto; gap: 9px; align-items:center;
+      font-size: 0.82rem; padding: 4px 0;
+    }
+    .app-row .color-dot {
+      width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0;
     }
     .app-row .name { color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .app-row .bar-track { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow:hidden; }
-    .app-row .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3b82f6, #10b981); }
+    .app-row .pct { font-weight: 700; font-size: 0.84rem; min-width: 38px; text-align: right; }
     .mini-stat-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
     .mini-stat { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 10px; }
     .mini-stat .label { color: var(--text-muted); font-size: 0.72rem; margin-bottom: 4px; }
@@ -1336,49 +1338,72 @@
 
       if (appUsageChart) appUsageChart.destroy();
 
-      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
+      const PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4'];
+      const OTHERS_COLOR = '#475569';
 
-      // Add "Others" to fill the donut to 100% when top-N apps don't cover everything
+      // Add "Others" slice so the donut always fills to 100%
       const topSum = appUsage.reduce((s, item) => s + item.pct, 0);
-      const othersDisplay = [];
-      const othersColor = [];
-      if (topSum < 99.5) {
-        othersDisplay.push({ name: 'Others', pct: 100 - topSum });
-        othersColor.push(colors[colors.length - 1]);
-      }
-      const allItems   = [...appUsage, ...othersDisplay];
-      const allColors  = [...appUsage.map((_, i) => colors[i % (colors.length - 1)]), ...othersColor];
+      const hasOthers = topSum < 99.5;
+      const allItems  = hasOthers ? [...appUsage, { name: 'Others', pct: 100 - topSum, count: 0 }] : appUsage;
+      const allColors = allItems.map((_, i) => i < appUsage.length ? PALETTE[i % PALETTE.length] : OTHERS_COLOR);
 
       appUsageChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: allItems.map(item => item.name),
-          datasets: [{ data: allItems.map(item => Number(item.pct.toFixed(1))), backgroundColor: allColors, borderWidth: 0 }]
+          datasets: [{
+            data: allItems.map(item => Number(item.pct.toFixed(1))),
+            backgroundColor: allColors,
+            hoverBackgroundColor: allColors.map(c => c + 'dd'),
+            borderWidth: 2,
+            borderColor: 'rgba(15,23,42,0.85)',
+            hoverOffset: 6
+          }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          cutout: '68%',
+          cutout: '70%',
+          animation: { animateRotate: true, duration: 600 },
           plugins: {
             legend: { display: false },
             tooltip: {
+              backgroundColor: 'rgba(10, 17, 35, 0.95)',
+              borderColor: 'rgba(255,255,255,0.12)',
+              borderWidth: 1,
+              padding: { x: 14, y: 10 },
+              titleFont: { size: 13, weight: '600', family: 'inherit' },
+              bodyFont:  { size: 12, family: 'inherit' },
+              titleColor: '#f1f5f9',
+              bodyColor:  '#94a3b8',
+              displayColors: true,
+              boxWidth: 10,
+              boxHeight: 10,
+              boxPadding: 4,
               callbacks: {
-                label: (ctx) => ` ${ctx.label}: ${Number(ctx.raw).toFixed(1)}%`
+                title: (items) => items[0]?.label || '',
+                label: (ctx) => `  ${Number(ctx.raw).toFixed(1)}% of screen time`
               }
             }
           }
         }
       });
 
+      // Legend: colored dot · app name · percentage (all in the app's own color)
       legend.innerHTML = appUsage.length
-        ? appUsage.map((item, index) => `
+        ? appUsage.map((item, i) => `
             <div class="app-row">
+              <div class="color-dot" style="background:${allColors[i]};"></div>
               <div class="name" title="${item.name}">${item.name}</div>
-              <div class="bar-track"><div class="bar-fill" style="width: ${Math.max(4, item.pct)}%; background: ${allColors[index]};"></div></div>
-              <div style="text-align:right; color: var(--text-muted); min-width:36px;">${item.pct.toFixed(0)}%</div>
+              <div class="pct" style="color:${allColors[i]};">${item.pct.toFixed(0)}%</div>
             </div>
-          `).join('')
-        : '<div style="color: var(--text-muted); font-size: 0.85rem;">No app usage data found.</div>';
+          `).join('') + (hasOthers ? `
+            <div class="app-row">
+              <div class="color-dot" style="background:${OTHERS_COLOR};"></div>
+              <div class="name" style="color:var(--text-muted);">Others</div>
+              <div class="pct" style="color:${OTHERS_COLOR};">${(100 - topSum).toFixed(0)}%</div>
+            </div>` : '')
+        : '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 8px 0;">No app usage data found.</div>';
     }
 
     function renderWeeklyHeatmap(reports) {
