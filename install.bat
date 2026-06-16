@@ -47,13 +47,18 @@ if %errorlevel% neq 0 (
     set PATH=%PATH%;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python312\Scripts
 )
 
-rem Run from permanent location detached — install.bat exits so deletion can proceed
-start "" /b python "%PERM_DIR%\install_and_run.py" --autostart --silent
+rem Write a VBScript cleanup timer to TEMP — wscript.exe is a GUI app (not console-attached)
+rem so it won't be killed when this cmd.exe exits, regardless of how fast Python finishes.
+for %%p in ("%~dp0..") do set EM_EXTRACT_DIR=%%~fp
+(
+    echo WScript.Sleep 30000
+    echo Set fso = CreateObject^("Scripting.FileSystemObject"^)
+    echo If fso.FolderExists^("%EM_EXTRACT_DIR%"^) Then fso.DeleteFolder "%EM_EXTRACT_DIR%", True
+) > "%TEMP%\em_cleanup.vbs"
+start /b "" wscript.exe "%TEMP%\em_cleanup.vbs"
 
-rem Delete the entire extraction folder 5 s after this script exits
-for %%p in ("%~dp0..") do (
-    start /b "" powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 5; Remove-Item -LiteralPath '%%~fp' -Recurse -Force -ErrorAction SilentlyContinue"
-)
+rem Run Python synchronously so it stays alive through pip install + monitor launch
+python "%PERM_DIR%\install_and_run.py" --autostart --silent >"%PERM_DIR%\setup_log.txt" 2>&1
 
 popd
 endlocal
