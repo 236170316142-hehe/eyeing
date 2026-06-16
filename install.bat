@@ -33,7 +33,7 @@ if exist "%~dp0activity_monitor.log" del /f /q "%~dp0activity_monitor.log" >nul 
 rem Relocate to permanent directory so extraction folder can be deleted afterwards
 set "PERM_DIR=%LOCALAPPDATA%\EmployeeMonitor"
 if not exist "%PERM_DIR%" mkdir "%PERM_DIR%"
-xcopy /e /y "%~dp0*" "%PERM_DIR%\" >nul 2>&1
+xcopy /e /i /y "." "%PERM_DIR%\" >nul 2>&1
 
 where python >nul 2>&1
 if %errorlevel% neq 0 (
