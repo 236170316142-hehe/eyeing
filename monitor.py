@@ -1145,6 +1145,7 @@ class ActivityMonitor:
             #    os.execv() is unreliable on Windows when launched from VBScript / Task Scheduler.
             self.log.info('[UPDATE] Restarting monitor to load new code...')
             monitor_script = str(BASE_DIR / 'monitor.py')
+            spawned = False
             try:
                 if sys.platform == 'win32':
                     DETACHED = 0x00000008
@@ -1161,11 +1162,24 @@ class ActivityMonitor:
                         cwd=str(BASE_DIR),
                         start_new_session=True
                     )
+                spawned = True
             except Exception as restart_exc:
-                self.log.error(f'[UPDATE] Restart via Popen failed: {restart_exc}')
-            # os._exit terminates the entire process immediately — sys.exit() only kills
-            # the calling thread, leaving the old monitor alive alongside the new one.
-            os._exit(0)
+                self.log.error(f'[UPDATE] Popen failed: {restart_exc}')
+
+            if spawned:
+                # Confirm from this process immediately — fastest path.
+                # The newly spawned monitor also confirms via pending_confirm.json as backup.
+                self._send_update_confirm(version)
+                # os._exit kills the whole process instantly (sys.exit in a thread only kills
+                # the thread, leaving the old monitor alive alongside the new one).
+                os._exit(0)
+            else:
+                # Popen failed — replace this process in-place so the new code runs.
+                try:
+                    os.execv(sys.executable, [sys.executable, monitor_script])
+                except Exception as execv_exc:
+                    self.log.error(f'[UPDATE] execv fallback also failed: {execv_exc}')
+                    self._update_in_progress = False
 
         except Exception as exc:
             self.log.error(f'[UPDATE] Update failed: {exc}')

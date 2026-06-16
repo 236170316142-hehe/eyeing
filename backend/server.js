@@ -885,7 +885,9 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     'requirements.txt',
   ];
 
-  // update-only packages: Python core + web assets + version stamp. No installers.
+  // update-only packages: Python core files only — no web assets, no launchers.
+  // Files are named without the eyeing/ prefix so they land in BASE_DIR regardless
+  // of whether the machine uses an old root install or the new eyeing/ subfolder.
   if (platformDefinition.updateOnly) {
     const updateFiles = [
       'monitor.py',
@@ -901,20 +903,7 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
         archive.file(absPath, { name: relativePath });
       }
     });
-    const webAssetPaths = [
-      'backend/public/setup.html',
-      'backend/public/admin.html',
-      'backend/public/download.html',
-      'backend/public/employee-distribution.html',
-    ];
-    webAssetPaths.forEach((relativePath) => {
-      const absPath = path.join(ROOT_DIR, relativePath);
-      if (fs.existsSync(absPath)) {
-        archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
-      }
-    });
     archive.append(new Date().toISOString() + '\n', { name: 'last_updated.txt' });
-    archive.append(`${origin}\n`, { name: 'backend_url.txt' });
     return;
   }
 
