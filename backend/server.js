@@ -847,7 +847,7 @@ function buildWindowsVbsLauncher(origin) {
 ' Double-click Setup.vbs to install.
 ' The setup page opens in your browser; everything else runs silently in the background.
 Option Explicit
-Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f
+Dim ws, fso, baseDir, batFile, backendUrl, deviceId, installId, setupUrl, urlFile, f, permDir
 
 Set ws  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -868,11 +868,13 @@ Randomize
 installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
 setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
 
-' Only open the setup page on a fresh install.
-' If install_context.json already exists this is a reinstall/update — skip the browser
-' so the employee is not prompted to re-enter their details; files are updated silently.
+' Detect reinstall: check the permanent AppData location first (files are moved there
+' after first install and the extraction folder is deleted), then fall back to the
+' eyeing\ subfolder for the very first run before relocation happens.
 Dim isReinstall
-isReinstall = fso.FileExists(baseDir & "eyeing\\activity_data\\install_context.json")
+permDir = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\\EmployeeMonitor\\"
+isReinstall = fso.FileExists(permDir & "activity_data\\install_context.json") _
+           Or fso.FileExists(baseDir & "eyeing\\activity_data\\install_context.json")
 
 If Not isReinstall Then
   ' Fresh install — open setup page in default browser.

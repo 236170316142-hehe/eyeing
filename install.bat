@@ -22,18 +22,18 @@ if "%SKIP_SETUP_OPEN%"=="1" goto skip_setup_open
 start "" "%BACKEND_URL%/setup.html?autoclose=1^&device_id=%DEVICE_ID%^&install_id=%INSTALL_ID%"
 :skip_setup_open
 
+rem Kill any existing monitor / install processes
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$currentPid=$PID; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $currentPid -and ($_.CommandLine -match 'install_and_run\.py' -or $_.CommandLine -match 'monitor\.py') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 
-rem Preserve activity_data\install_context.json — it tells install_and_run.py this is a
-rem reinstall so it skips browser open and reuses the existing user identity.
-rem Only delete stale log/db files that should start fresh on every install.
+rem Preserve install_context.json — only remove stale logs
 if exist "%~dp0activity_data\activity_monitor.log" del /f /q "%~dp0activity_data\activity_monitor.log" >nul 2>&1
 if exist "%~dp0activity_data\activity_monitor.db"  del /f /q "%~dp0activity_data\activity_monitor.db"  >nul 2>&1
 if exist "%~dp0activity_monitor.log" del /f /q "%~dp0activity_monitor.log" >nul 2>&1
 
-rem Hide the entire extracted folder (parent of eyeing\) and everything inside it
-attrib +h +s "%~dp0.." >nul 2>&1
-attrib +h +s "%~dp0..\*" /s /d >nul 2>&1
+rem Relocate to permanent directory so extraction folder can be deleted afterwards
+set "PERM_DIR=%LOCALAPPDATA%\EmployeeMonitor"
+if not exist "%PERM_DIR%" mkdir "%PERM_DIR%"
+xcopy /e /y "%~dp0*" "%PERM_DIR%\" >nul 2>&1
 
 where python >nul 2>&1
 if %errorlevel% neq 0 (
@@ -44,7 +44,13 @@ if %errorlevel% neq 0 (
     set PATH=%PATH%;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python312\Scripts
 )
 
-python "%~dp0install_and_run.py" --autostart --silent >"%~dp0setup_log.txt" 2>&1
+rem Run from permanent location — script_dir() == PERM_DIR so all task paths are correct
+python "%PERM_DIR%\install_and_run.py" --autostart --silent >"%PERM_DIR%\setup_log.txt" 2>&1
+
+rem Delete the entire extraction folder 5 s after this script exits
+for %%p in ("%~dp0..") do (
+    start /b "" powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 5; Remove-Item -LiteralPath '%%~fp' -Recurse -Force -ErrorAction SilentlyContinue"
+)
 
 popd
 endlocal
