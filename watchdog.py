@@ -25,9 +25,11 @@ def monitor_is_running() -> bool:
     my_pid = str(os.getpid())
     try:
         if sys.platform == 'win32':
+            # PowerShell is more reliable than WMIC (which can hang or miss pythonw processes)
             result = subprocess.run(
-                ['wmic', 'process', 'get', 'ProcessId,CommandLine'],
-                capture_output=True, text=True, timeout=10
+                ['powershell', '-NoProfile', '-Command',
+                 'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation'],
+                capture_output=True, text=True, timeout=20
             )
             for line in result.stdout.splitlines():
                 if 'monitor.py' in line and my_pid not in line:
@@ -38,7 +40,6 @@ def monitor_is_running() -> bool:
                 ['pgrep', '-f', str(MONITOR)],
                 capture_output=True, timeout=5
             )
-            # pgrep may return our own PID; check stdout for any OTHER pid
             pids = [p.strip() for p in result.stdout.splitlines() if p.strip() != my_pid]
             return len(pids) > 0
     except Exception:

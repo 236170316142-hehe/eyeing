@@ -1161,10 +1161,11 @@ class ActivityMonitor:
                         cwd=str(BASE_DIR),
                         start_new_session=True
                     )
-                sys.exit(0)
             except Exception as restart_exc:
-                self.log.error(f'[UPDATE] Restart via Popen failed ({restart_exc}), falling back to execv...')
-                os.execv(sys.executable, [sys.executable, monitor_script])
+                self.log.error(f'[UPDATE] Restart via Popen failed: {restart_exc}')
+            # os._exit terminates the entire process immediately — sys.exit() only kills
+            # the calling thread, leaving the old monitor alive alongside the new one.
+            os._exit(0)
 
         except Exception as exc:
             self.log.error(f'[UPDATE] Update failed: {exc}')
@@ -1596,21 +1597,26 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    exit_code = 0
-    try:
-        monitor = ActivityMonitor()
-        monitor.run()
-    except KeyboardInterrupt:
-        pass   # already handled by _handle_signal; suppress traceback
-    except SystemExit as exc:
-        exit_code = exc.code if isinstance(exc.code, int) else 1
-        if exit_code not in (0, None):
-            _write_boot_crash(f"SystemExit during startup/run: {exc}")
-    except Exception as exc:
+    # Self-healing loop: automatically restart on any crash.
+    # Clean exits (os._exit from update, KeyboardInterrupt, SystemExit(0)) break the loop.
+    while True:
         try:
-            logging.getLogger(__name__).exception("Monitor crashed unexpectedly")
-        except Exception:
-            pass
-        _write_boot_crash(f"Unhandled exception during startup/run: {exc}")
-        exit_code = 1
-    sys.exit(exit_code)
+            monitor = ActivityMonitor()
+            monitor.run()
+            # run() returned normally (rare) — pause briefly then restart
+            time.sleep(5)
+        except KeyboardInterrupt:
+            break
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if code in (0, None):
+                break  # intentional clean exit
+            _write_boot_crash(f"SystemExit({code}) — restarting in 10 s")
+            time.sleep(10)
+        except Exception as exc:
+            try:
+                logging.getLogger(__name__).exception("Monitor crashed — restarting in 10 s")
+            except Exception:
+                pass
+            _write_boot_crash(f"Crash: {exc}")
+            time.sleep(10)

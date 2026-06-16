@@ -663,11 +663,11 @@ On Error GoTo 0
             if watchdog_path.exists():
                 wd_tr = f'"{python_exec}" "{watchdog_path}"'
                 subprocess.run(
-                    ['schtasks', '/Create', '/SC', 'MINUTE', '/MO', '5',
+                    ['schtasks', '/Create', '/SC', 'MINUTE', '/MO', '1',
                      '/TN', 'EmployeeMonitorWatchdog', '/TR', wd_tr, '/F', '/NP'],
                     capture_output=True, text=True, check=False
                 )
-                print("[OK] Watchdog task registered — monitor restarts within 5 min if killed")
+                print("[OK] Watchdog task registered — monitor restarts within 1 min if killed")
         except Exception as e:
             print(f"[WARN] Watchdog task setup failed: {e}")
 
