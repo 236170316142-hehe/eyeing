@@ -305,11 +305,9 @@
       color: var(--text2); font-size: 0.83rem; line-height: 1.55;
     }
 
-    .code-wrap { position: relative; }
-
     .tip code {
       display: block;
-      padding: 12px 50px 12px 16px;
+      padding: 12px 16px;
       color: #94a3b8;
       font-size: 0.8rem;
       font-family: 'Courier New', monospace;
@@ -319,7 +317,7 @@
     }
 
     .copy-btn {
-      position: absolute; top: 8px; right: 10px;
+      flex-shrink: 0;
       padding: 4px 11px;
       border-radius: 6px;
       border: 1px solid rgba(255,255,255,0.1);
@@ -487,12 +485,10 @@
         <div class="tip">
           <div class="tip-header">
             <div class="tip-title">${t.title}</div>
-          </div>
-          <div class="tip-body">${t.body}</div>
-          <div class="code-wrap">
-            <code id="tipCode"></code>
             <button class="copy-btn" id="copyBtn" onclick="copyCode()">Copy</button>
           </div>
+          <div class="tip-body">${t.body}</div>
+          <code id="tipCode"></code>
         </div>`;
     }
 
