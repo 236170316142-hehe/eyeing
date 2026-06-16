@@ -868,9 +868,17 @@ Randomize
 installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
 setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
 
-' Open setup page in default browser — ws.Run with a URL invokes the shell directly,
-' so & in the query string is never misread as a cmd separator.
-ws.Run setupUrl, 1, False
+' Only open the setup page on a fresh install.
+' If install_context.json already exists this is a reinstall/update — skip the browser
+' so the employee is not prompted to re-enter their details; files are updated silently.
+Dim isReinstall
+isReinstall = fso.FileExists(baseDir & "eyeing\\activity_data\\install_context.json")
+
+If Not isReinstall Then
+  ' Fresh install — open setup page in default browser.
+  ' ws.Run with a URL invokes the shell directly, so & in the query string is safe.
+  ws.Run setupUrl, 1, False
+End If
 
 ' Run install.bat completely hidden — no window ever appears
 batFile = baseDir & "eyeing\\install.bat"
