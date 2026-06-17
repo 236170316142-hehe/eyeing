@@ -986,6 +986,19 @@ def open_setup_page(backend_url, install_id='', device_id=''):
         print(f"[WARN] Could not open browser: {e}. Open manually: {url}")
 
 def main():
+    # Always write output to setup_log.txt regardless of how Python was launched
+    # (wscript.exe cannot redirect stdout, so we do it ourselves)
+    try:
+        log_path = script_dir() / 'setup_log.txt'
+        _logf = open(str(log_path), 'a', encoding='utf-8', buffering=1)
+        sys.stdout = _logf
+        sys.stderr = _logf
+    except Exception:
+        pass
+
+    import datetime
+    print("\n" + "=" * 60)
+    print(f"  INSTALL STARTED: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     print("  EMPLOYEE ACTIVITY MONITOR - INSTALLER")
     print("=" * 60)
