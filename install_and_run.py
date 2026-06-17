@@ -16,6 +16,7 @@ import platform
 import socket
 import signal
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
 PYTHON_VERSION_MIN = (3, 8)
@@ -268,81 +269,156 @@ def _ensure_pip():
     return False
 
 
-def install_requirements():
-    print("\n[INFO] Installing required Python packages one by one...")
+# Packages that require huge downloads (PyTorch etc) — installed in background
+# so they never block monitor startup
+_HEAVY_PACKAGES = frozenset({
+    'sentence-transformers', 'torch', 'torchvision', 'torchaudio',
+    'tensorflow', 'transformers', 'xformers',
+})
 
-    # Make sure pip exists before trying to use it
+def _pkg_key(spec):
+    return spec.split('[')[0].split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip().lower()
+
+def _install_one(pkg, base_flags, timeout):
+    """Install one package; retries with --user on permission errors. Returns (status, err)."""
+    last_err = ''
+    for extra in [[], ['--user']]:
+        try:
+            r = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q', '--prefer-binary', pkg]
+                + base_flags + extra,
+                capture_output=True, text=True, timeout=timeout, check=False
+            )
+            if r.returncode == 0:
+                return ('OK (user)' if extra else 'OK'), None
+            last_err = (r.stderr or r.stdout or '').strip()
+        except subprocess.TimeoutExpired:
+            return 'TIMEOUT', None
+        except Exception as e:
+            return 'ERROR', str(e)
+    return 'FAILED', last_err[:300]
+
+
+def _start_background_heavy_install(packages):
+    """Launch a fully detached process to install heavy ML packages after monitor is running."""
+    if not packages:
+        return
+    log_path = str(script_dir() / 'setup_log.txt')
+    py_exe   = sys.executable
+
+    # Write a small self-contained script to a temp file
+    lines = [
+        'import subprocess, sys, time',
+        f'LOG  = {log_path!r}',
+        f'PKGS = {packages!r}',
+        f'PY   = {py_exe!r}',
+        'time.sleep(20)',
+        'with open(LOG, "a", encoding="utf-8", buffering=1) as lf:',
+        '    lf.write("\\n[BACKGROUND] Installing heavy packages...\\n")',
+        '    for pkg in PKGS:',
+        '        lf.write(f"[BACKGROUND] Installing {pkg}...\\n"); lf.flush()',
+        '        for extra in [[], ["--user"]]:',
+        '            r = subprocess.run([PY, "-m", "pip", "install", "-q", "--prefer-binary", pkg] + extra,',
+        '                               capture_output=True, text=True, timeout=3600, check=False)',
+        '            if r.returncode == 0:',
+        '                lf.write(f"[BACKGROUND] {pkg}: OK\\n"); lf.flush(); break',
+        '        else:',
+        '            err = (r.stderr or r.stdout or "").strip()[:200]',
+        '            lf.write(f"[BACKGROUND] {pkg}: FAILED {err}\\n"); lf.flush()',
+        '    lf.write("[BACKGROUND] Done.\\n")',
+    ]
+    bg_script = Path(tempfile.gettempdir()) / 'em_heavy_install.py'
+    bg_script.write_text('\n'.join(lines), encoding='utf-8')
+
+    try:
+        if is_windows():
+            DETACHED  = 0x00000008
+            NEW_GROUP = 0x00000200
+            subprocess.Popen(
+                [sys.executable, str(bg_script)],
+                creationflags=DETACHED | NEW_GROUP,
+                close_fds=True,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            subprocess.Popen(
+                [sys.executable, str(bg_script)],
+                start_new_session=True,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        print(f"[INFO] {', '.join(packages)} queued for background install — monitor starts now.")
+    except Exception as e:
+        print(f"[WARN] Could not start background installer: {e}")
+
+
+def install_requirements():
+    import datetime
+    print("\n[INFO] Installing required Python packages...")
+
+    # Ensure pip is available (venv always has it; bare Python may not)
     try:
         _ensure_pip()
     except Exception as e:
-        print(f"[WARN] pip bootstrap error: {e}")
+        print(f"[WARN] pip bootstrap: {e}")
 
-    # Upgrade pip itself
+    # Upgrade pip quietly so newer metadata works
     try:
         subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', '-q'],
+            [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', '-q', '--prefer-binary'],
             capture_output=True, timeout=120, check=False
         )
     except Exception:
         pass
 
+    # Read requirements
     try:
         requirements_path = script_dir() / 'requirements.txt'
-        packages = []
-        for raw_line in requirements_path.read_text(encoding='utf-8').splitlines():
-            line = raw_line.strip()
+        all_pkgs = []
+        for raw in requirements_path.read_text(encoding='utf-8').splitlines():
+            line = raw.strip()
             if not line or line.startswith('#'):
                 continue
-            package_name = line.split('[')[0].split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip().lower()
-            if not is_windows() and package_name in WINDOWS_ONLY_REQUIREMENTS:
+            if not is_windows() and _pkg_key(line) in WINDOWS_ONLY_REQUIREMENTS:
                 continue
-            packages.append(line)
+            all_pkgs.append(line)
     except Exception as e:
-        print(f"[WARN] Could not read requirements.txt: {e} — continuing without packages.")
+        print(f"[WARN] Could not read requirements.txt: {e}")
         return True
 
-    # Packages that pull in large ML deps (PyTorch etc) need a much longer timeout
-    HEAVY_PACKAGES = {'sentence-transformers', 'torch', 'torchvision', 'torchaudio',
-                      'tensorflow', 'transformers', 'xformers'}
+    base_flags   = ['--break-system-packages'] if is_linux() else []
+    core_pkgs    = [p for p in all_pkgs if _pkg_key(p) not in _HEAVY_PACKAGES]
+    heavy_pkgs   = [p for p in all_pkgs if _pkg_key(p) in _HEAVY_PACKAGES]
 
+    # ── Parallel install of core packages ────────────────────────────────────
+    print(f"[INFO] Installing {len(core_pkgs)} core packages in parallel (this takes ~1-2 min)...")
+    t0 = datetime.datetime.now()
     failed = []
-    for pkg in packages:
-        idx = packages.index(pkg) + 1
-        pkg_key = pkg.split('[')[0].split('==')[0].split('>=')[0].strip().lower()
-        is_heavy = pkg_key in HEAVY_PACKAGES
-        timeout = 1800 if is_heavy else 300  # 30 min for ML packages, 5 min for others
-        label = ' (this may take 10-30 min, downloading PyTorch)' if is_heavy else ''
-        print(f"  [{idx}/{len(packages)}] Installing {pkg}...{label}", end='', flush=True)
-        try:
-            base_flags = ['--break-system-packages'] if is_linux() else []
-            result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-q', pkg] + base_flags,
-                capture_output=True, text=True, timeout=timeout, check=False
-            )
-            if result.returncode == 0:
-                print(" OK")
-                continue
+    completed = [0]
 
-            # Retry with --user (avoids needing admin on system Python installs)
-            result2 = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-q', '--user', pkg] + base_flags,
-                capture_output=True, text=True, timeout=timeout, check=False
-            )
-            if result2.returncode == 0:
-                print(" OK (user)")
-                continue
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_install_one, pkg, base_flags, 300): pkg for pkg in core_pkgs}
+        for future in as_completed(futures):
+            pkg = futures[future]
+            completed[0] += 1
+            try:
+                status, err = future.result()
+            except Exception as exc:
+                status, err = 'ERROR', str(exc)
 
-            err = (result2.stderr or result2.stdout or result.stderr or result.stdout or '').strip()
-            print(f" FAILED")
-            print(f"    [WARN] {err[:300] or 'no output'}")
-            failed.append(pkg)
-        except subprocess.TimeoutExpired:
-            print(f" TIMEOUT (skipped)")
-            failed.append(pkg)
-        except Exception as e:
-            print(f" ERROR: {e}")
-            failed.append(pkg)
+            tag = 'OK' if status.startswith('OK') else status
+            print(f"  [{completed[0]}/{len(core_pkgs)}] {pkg}: {tag}")
+            if err:
+                print(f"    [WARN] {err}")
+            if not status.startswith('OK'):
+                failed.append(pkg)
 
+    elapsed = (datetime.datetime.now() - t0).seconds
+    if failed:
+        print(f"[WARN] {len(failed)} package(s) failed: {', '.join(failed)}")
+    else:
+        print(f"[OK] All {len(core_pkgs)} core packages installed in {elapsed}s.")
+
+    # pywin32 needs a post-install step on Windows
     if is_windows():
         try:
             subprocess.run(
@@ -352,13 +428,11 @@ def install_requirements():
         except Exception:
             pass
 
-    if failed:
-        print(f"\n[WARN] {len(failed)} package(s) failed: {', '.join(failed)}")
-        print("       Monitor will start with limited features for those packages.")
-    else:
-        print("[OK] All packages installed successfully.")
+    # ── Heavy packages: install in background, don't block monitor startup ──
+    if heavy_pkgs:
+        _start_background_heavy_install(heavy_pkgs)
 
-    return True  # Always continue — partial install beats no install
+    return True  # Always return True — monitor must start regardless
 
 
 def _run_pkg_cmd(label, cmd, timeout=300):
