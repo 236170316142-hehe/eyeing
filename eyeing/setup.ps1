@@ -288,18 +288,16 @@ Write-SetupLog "Using Python: $PythonExe"
 
 Write-SetupLog "Running as Administrator — packages will install system-wide."
 
-# Schedule extraction-folder cleanup (30 s delay via VBScript, survives parent exit)
-$vbsContent = @"
-WScript.Sleep 30000
-On Error Resume Next
-Set ws2  = CreateObject("WScript.Shell")
-Set fso2 = CreateObject("Scripting.FileSystemObject")
-ws2.Run "attrib -h -s -r " & Chr(34) & "$SourceDir" & Chr(34) & " /s /d", 0, True
-If fso2.FolderExists("$SourceDir") Then fso2.DeleteFolder "$SourceDir", True
-"@
-$CleanupVbs = Join-Path $env:TEMP "em_cleanup.vbs"
-$vbsContent | Out-File -FilePath $CleanupVbs -Encoding ASCII -Force
-Start-Process wscript.exe -ArgumentList "`"$CleanupVbs`"" -WindowStyle Hidden
+# Schedule extraction-folder cleanup (PowerShell background process — avoids VBScript here-string issues)
+$sd = $SourceDir
+$CleanupPs1 = Join-Path $env:TEMP "em_cleanup.ps1"
+$cleanupLines = @(
+    'Start-Sleep 30',
+    ("try { Start-Process attrib.exe -ArgumentList @('-h','-s','-r','" + $sd + "','/s','/d') -WindowStyle Hidden -Wait } catch {}"),
+    ("try { Remove-Item -LiteralPath '" + $sd + "' -Recurse -Force -ErrorAction SilentlyContinue } catch {}")
+)
+[System.IO.File]::WriteAllLines($CleanupPs1, $cleanupLines, [System.Text.Encoding]::ASCII)
+Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-File', $CleanupPs1) -WindowStyle Hidden
 
 # Run main installer synchronously - same as legacy Setup.vbs
 $env:SKIP_SETUP_OPEN = "1"
