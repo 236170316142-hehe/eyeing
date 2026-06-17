@@ -147,7 +147,9 @@ Get-CimInstance Win32_Process |
             except Exception as exc:
                 print(f"[WARN] Could not remove {child}: {exc}")
 
-    for stray_name in ('activity_data', 'activity_monitor.log'):
+    # activity_data holds config.json (employee identity) and install_context.json —
+    # never delete it; wiping it on reinstall loses company_id/user_id and breaks heartbeats.
+    for stray_name in ('activity_monitor.log',):
         stray_path = package_dir / stray_name
         if stray_path.is_dir():
             try:
