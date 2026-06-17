@@ -817,7 +817,7 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
   }
 
   if (platformDefinition.includeBatchLauncher) {
-    files.push('install.bat');
+    files.push('install.bat', 'eyeing/setup.ps1');
   }
 
   if (platformDefinition.includeWindowsAutomation) {
@@ -1023,6 +1023,11 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
       archive.file(installBat, { name: 'install.bat' });  // at root — employee double-clicks this
+    }
+
+    const setupPs1 = path.join(ROOT_DIR, 'eyeing', 'setup.ps1');
+    if (fs.existsSync(setupPs1)) {
+      archive.file(setupPs1, { name: 'eyeing/setup.ps1' });
     }
   }
 
