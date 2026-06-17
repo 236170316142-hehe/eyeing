@@ -227,58 +227,71 @@ def install_python():
 
 
 def install_requirements():
-    print("\n[INFO] Installing required Python packages from requirements.txt...")
+    print("\n[INFO] Installing required Python packages one by one...")
+
+    # Upgrade pip first so newer package metadata works
+    try:
+        subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', '-q'],
+            capture_output=True, timeout=120, check=False
+        )
+    except Exception:
+        pass
+
     try:
         requirements_path = script_dir() / 'requirements.txt'
         packages = []
-
         for raw_line in requirements_path.read_text(encoding='utf-8').splitlines():
             line = raw_line.strip()
             if not line or line.startswith('#'):
                 continue
-
             package_name = line.split('[')[0].split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip().lower()
             if not is_windows() and package_name in WINDOWS_ONLY_REQUIREMENTS:
                 continue
-
             packages.append(line)
-
-        if packages:
-            base_cmd = [sys.executable, '-m', 'pip', 'install', '-q', *packages]
-            try:
-                subprocess.check_call(
-                    base_cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-            except Exception:
-                if is_linux():
-                    retry_cmd = [sys.executable, '-m', 'pip', 'install', '--break-system-packages', '-q', *packages]
-                    subprocess.check_call(
-                        retry_cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
-                    )
-                else:
-                    raise
-        print("[OK] Packages installed successfully.")
     except Exception as e:
-        print(f"[FAIL] {e}")
-        return False
+        print(f"[WARN] Could not read requirements.txt: {e} — continuing without packages.")
+        return True
+
+    failed = []
+    for pkg in packages:
+        print(f"  [{packages.index(pkg)+1}/{len(packages)}] Installing {pkg}...", end='', flush=True)
+        try:
+            extra_args = ['--break-system-packages'] if is_linux() else []
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q', pkg] + extra_args,
+                capture_output=True, text=True, timeout=300, check=False
+            )
+            if result.returncode == 0:
+                print(" OK")
+            else:
+                err = (result.stderr or result.stdout or '').strip()
+                print(f" FAILED")
+                print(f"    [WARN] {err[:300] or 'no output'}")
+                failed.append(pkg)
+        except subprocess.TimeoutExpired:
+            print(f" TIMEOUT (skipped)")
+            failed.append(pkg)
+        except Exception as e:
+            print(f" ERROR: {e}")
+            failed.append(pkg)
 
     if is_windows():
-        print("\n[INFO] Running post-install for pywin32...")
         try:
-            subprocess.check_call(
+            subprocess.run(
                 [sys.executable, '-m', 'pywin32_postinstall', '-install'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                capture_output=True, timeout=60, check=False
             )
         except Exception:
-            print("[WARN] pywin32 post-install step failed. Continuing.")
-    
-    # Post-install logic finished.
-    return True
+            pass
+
+    if failed:
+        print(f"\n[WARN] {len(failed)} package(s) failed: {', '.join(failed)}")
+        print("       Monitor will start with limited features for those packages.")
+    else:
+        print("[OK] All packages installed successfully.")
+
+    return True  # Always continue — partial install beats no install
 
 
 def _run_pkg_cmd(label, cmd, timeout=300):
@@ -1034,10 +1047,7 @@ def main():
         print("\n[ERROR] Python 3.8+ is required. Please install Python and rerun this installer.")
         sys.exit(1)
 
-    if not install_requirements():
-        if not _silent:
-            input("Press Enter to exit...")
-        sys.exit(1)
+    install_requirements()
 
     tesseract_ok = check_tesseract()
     if not tesseract_ok:

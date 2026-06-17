@@ -889,7 +889,7 @@ ws.Run "attrib +h +s " & Chr(34) & extractParent & Chr(34), 0, True
 If Not fso.FolderExists(permDir) Then fso.CreateFolder permDir
 CopyFolder srcDir, permDir
 
-' Find Python — search common install locations before falling back to PATH
+' Find Python — search common install locations first
 localApp = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%")
 pythonExe = ""
 Dim pySearch(15)
@@ -915,6 +915,23 @@ For pi = 0 To 15
     Exit For
   End If
 Next
+
+' Python not found — silently download and install it via PowerShell
+If pythonExe = "" Then
+  Dim pyInstaller
+  pyInstaller = ws.ExpandEnvironmentStrings("%TEMP%") & "\\python_setup.exe"
+  ws.Run "powershell -NoProfile -ExecutionPolicy Bypass -Command ""Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe' -OutFile '" & pyInstaller & "' -UseBasicParsing""", 0, True
+  If fso.FileExists(pyInstaller) Then
+    ws.Run Chr(34) & pyInstaller & Chr(34) & " /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1", 0, True
+    ' Search again after installation
+    For pi = 0 To 15
+      If fso.FileExists(pySearch(pi)) Then
+        pythonExe = pySearch(pi)
+        Exit For
+      End If
+    Next
+  End If
+End If
 If pythonExe = "" Then pythonExe = "python"
 
 ' Run Python installer synchronously — wscript.exe (GUI) stays alive until Python exits
