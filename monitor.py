@@ -35,7 +35,7 @@ try:
     import win32gui
     import win32process
     HAS_WIN32 = True
-except ImportError:
+except Exception:
     HAS_WIN32 = False
 
 try:
@@ -73,7 +73,7 @@ except ImportError:
 try:
     from pynput import keyboard as _kb, mouse as _mouse
     HAS_PYNPUT = True
-except ImportError:
+except Exception:
     HAS_PYNPUT = False
 
 # NVIDIA API for Cloud Embeddings
@@ -716,59 +716,136 @@ class ActivityMonitor:
 
 
     # ── Active window detection ──────────────────────────────────────────────
-    def _get_all_open_windows(self) -> list[str]:
-        """Returns a list of titles of all visible application windows."""
-        if not HAS_WIN32:
-            return []
-        windows = []
-        def enum_handler(hwnd, ctx):
-            try:
-                if win32gui.IsWindowVisible(hwnd):
-                    title = win32gui.GetWindowText(hwnd).strip()
-                    if title and title not in ["Program Manager", "Settings", "Microsoft Text Input Application"]:
-                        windows.append(title)
-            except Exception:
-                pass
+    def _hwnd_to_app_and_title_win32(self, hwnd) -> tuple[str, str]:
+        """Extract app name and title from a window handle using win32gui."""
+        title = win32gui.GetWindowText(hwnd) or ""
+        app_name = "Unknown"
         try:
-            win32gui.EnumWindows(enum_handler, None)
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            if HAS_PSUTIL and pid:
+                proc = psutil.Process(pid)
+                proc_name = proc.name()
+                base  = proc_name.replace(".exe", "").replace(".EXE", "")
+                lower = base.lower()
+                for key, friendly in APP_MAP.items():
+                    if key in lower:
+                        app_name = friendly
+                        break
+                else:
+                    app_name = base
+                for pat, friendly in self._app_overrides.items():
+                    if pat.lower() in lower:
+                        app_name = friendly
+                        break
         except Exception:
             pass
-        return windows
+        return app_name, title
 
-    def _get_active_window_info(self) -> tuple[str, str, str]:
-        if not HAS_WIN32:
-            return "Unknown", "", ""
+    def _get_foreground_hwnd_ctypes(self):
+        """Return the foreground window handle via ctypes (no pywin32 needed)."""
         try:
-            hwnd = win32gui.GetForegroundWindow()
-            if not hwnd:
-                return "Unknown", "", ""
+            import ctypes
+            return ctypes.windll.user32.GetForegroundWindow()
+        except Exception:
+            return None
 
-            title    = win32gui.GetWindowText(hwnd) or ""
+    def _hwnd_to_app_and_title_ctypes(self, hwnd) -> tuple[str, str]:
+        """Extract app name and title from a window handle using ctypes + psutil."""
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value or ""
+            else:
+                title = ""
+
             app_name = "Unknown"
+            if HAS_PSUTIL:
+                pid = ctypes.c_ulong(0)
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value:
+                    try:
+                        proc = psutil.Process(pid.value)
+                        proc_name = proc.name()
+                        base  = proc_name.replace(".exe", "").replace(".EXE", "")
+                        lower = base.lower()
+                        for key, friendly in APP_MAP.items():
+                            if key in lower:
+                                app_name = friendly
+                                break
+                        else:
+                            app_name = base
+                        for pat, friendly in self._app_overrides.items():
+                            if pat.lower() in lower:
+                                app_name = friendly
+                                break
+                    except Exception:
+                        pass
+            return app_name, title
+        except Exception:
+            return "Unknown", ""
 
+    def _get_all_open_windows(self) -> list[str]:
+        """Returns a list of titles of all visible application windows."""
+        if HAS_WIN32:
+            windows = []
+            def enum_handler(hwnd, ctx):
+                try:
+                    if win32gui.IsWindowVisible(hwnd):
+                        title = win32gui.GetWindowText(hwnd).strip()
+                        if title and title not in ["Program Manager", "Settings", "Microsoft Text Input Application"]:
+                            windows.append(title)
+                except Exception:
+                    pass
             try:
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                if HAS_PSUTIL and pid:
-                    proc      = psutil.Process(pid)
-                    proc_name = proc.name()
-                    base      = proc_name.replace(".exe", "").replace(".EXE", "")
-                    lower     = base.lower()
-
-                    for key, friendly in APP_MAP.items():
-                        if key in lower:
-                            app_name = friendly
-                            break
-                    else:
-                        app_name = base
-
-                    for pat, friendly in self._app_overrides.items():
-                        if pat.lower() in lower:
-                            app_name = friendly
-                            break
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+                win32gui.EnumWindows(enum_handler, None)
             except Exception:
                 pass
+            return windows
+
+        if os.name == 'nt':
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                SKIP = {"Program Manager", "Settings", "Microsoft Text Input Application"}
+                windows: list[str] = []
+                EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
+                def _enum(hwnd, _):
+                    try:
+                        if user32.IsWindowVisible(hwnd):
+                            length = user32.GetWindowTextLengthW(hwnd)
+                            if length:
+                                buf = ctypes.create_unicode_buffer(length + 1)
+                                user32.GetWindowTextW(hwnd, buf, length + 1)
+                                t = buf.value.strip()
+                                if t and t not in SKIP:
+                                    windows.append(t)
+                    except Exception:
+                        pass
+                    return True
+                user32.EnumWindows(EnumWindowsProc(_enum), 0)
+                return windows
+            except Exception:
+                pass
+        return []
+
+    def _get_active_window_info(self) -> tuple[str, str, str]:
+        try:
+            if HAS_WIN32:
+                hwnd = win32gui.GetForegroundWindow()
+                if not hwnd:
+                    return "Unknown", "", ""
+                app_name, title = self._hwnd_to_app_and_title_win32(hwnd)
+            elif os.name == 'nt':
+                hwnd = self._get_foreground_hwnd_ctypes()
+                if not hwnd:
+                    return "Unknown", "", ""
+                app_name, title = self._hwnd_to_app_and_title_ctypes(hwnd)
+            else:
+                return "Unknown", "", ""
 
             url = ""
             if any(b in app_name.lower() for b in BROWSER_APPS):
