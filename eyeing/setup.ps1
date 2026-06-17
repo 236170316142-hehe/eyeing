@@ -1,8 +1,8 @@
-param()   # SourceDir is derived from $PSScriptRoot — do not pass it via -File args
+param()   # SourceDir is derived from $PSScriptRoot - do not pass it via -File args
 
 $ErrorActionPreference = "Continue"
 
-# ── Require administrator — re-launch elevated if not already ─────────────────
+# Require administrator - re-launch elevated if not already
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     $self = $MyInvocation.MyCommand.Path
@@ -95,7 +95,7 @@ function Copy-FileSafe {
     try {
         Copy-Item -Path $Src -Destination $Dst -Force -ErrorAction Stop
     } catch {
-        # File may be locked or read-only — reset attributes and retry once
+        # File may be locked or read-only - reset attributes and retry once
         if (Test-Path -LiteralPath $Dst) {
             try { (Get-Item -LiteralPath $Dst -Force).Attributes = 'Normal' } catch {}
             try { Remove-Item -LiteralPath $Dst -Force -ErrorAction SilentlyContinue } catch {}
@@ -149,7 +149,7 @@ function Copy-MonitorPayload {
 
 # setup.ps1 lives at <extraction_root>\eyeing\setup.ps1
 # $PSScriptRoot is set automatically by PowerShell to the containing folder.
-# Parent of $PSScriptRoot  =  the extraction root (where install.bat lives).
+# Parent of $PSScriptRoot = the extraction root (where install.bat lives).
 $SourceDir = Split-Path -Parent $PSScriptRoot
 if (-not $SourceDir) { $SourceDir = $PSScriptRoot }
 $SourceDir = $SourceDir.TrimEnd('\')
@@ -239,7 +239,7 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     }
 
-# Kill all Python processes running out of EmployeeMonitor (covers monitor.py, watchdog.py, etc.)
+# Kill any Python processes running out of EmployeeMonitor
 Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='python3.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ExecutablePath -like "*EmployeeMonitor*" -or $_.CommandLine -like "*EmployeeMonitor*" } |
     ForEach-Object {
@@ -285,10 +285,9 @@ if (-not $PythonExe) {
     $PythonExe = "python"
 }
 Write-SetupLog "Using Python: $PythonExe"
+Write-SetupLog "Running as Administrator - packages will install system-wide."
 
-Write-SetupLog "Running as Administrator — packages will install system-wide."
-
-# Schedule extraction-folder cleanup (PowerShell background process — avoids VBScript here-string issues)
+# Schedule extraction-folder cleanup via a background PowerShell process
 $sd = $SourceDir
 $CleanupPs1 = Join-Path $env:TEMP "em_cleanup.ps1"
 $cleanupLines = @(
@@ -299,7 +298,7 @@ $cleanupLines = @(
 [System.IO.File]::WriteAllLines($CleanupPs1, $cleanupLines, [System.Text.Encoding]::ASCII)
 Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-File', $CleanupPs1) -WindowStyle Hidden
 
-# Run main installer synchronously - same as legacy Setup.vbs
+# Run main installer synchronously
 $env:SKIP_SETUP_OPEN = "1"
 $env:INSTALL_ID = $installId
 $env:DEVICE_ID = $deviceId
