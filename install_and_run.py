@@ -1056,11 +1056,15 @@ def protect_folder():
         return
 
     try:
-        # Keep the folder hidden/system, but do not set deny-delete ACL.
-        # Deny ACL slows down and can block complete remote uninstall.
+        # Hide the folder itself but do NOT apply +h +s recursively to activity_data —
+        # that directory holds config.json and install_context.json which must stay writable.
         subprocess.run(['attrib', '+h', '+s', folder_path], capture_output=True, check=False)
-        subprocess.run(['attrib', '+h', '+s', os.path.join(folder_path, '*'), '/s', '/d'], capture_output=True, check=False)
-        
+        for item in os.listdir(folder_path):
+            if item.lower() == 'activity_data':
+                continue
+            item_path = os.path.join(folder_path, item)
+            subprocess.run(['attrib', '+h', '+s', item_path, '/s', '/d'], capture_output=True, check=False)
+
         print("[OK] Folder is hidden from standard view.")
         print("       (To reverse: run 'attrib -h -s .\\')")
     except Exception as e:
@@ -1091,6 +1095,13 @@ def save_install_context():
             'device_id': os.environ.get('DEVICE_ID', '').strip() or os.environ.get('COMPUTERNAME', '').strip() or os.environ.get('HOSTNAME', '').strip() or socket.gethostname(),
             'backend_url': os.environ.get('BACKEND_URL', '').strip() or existing_backend
         }
+
+        # Reset attributes in case a previous protect_folder call set +h +s
+        if ctx_path.exists():
+            try:
+                subprocess.run(['attrib', '-h', '-s', '-r', str(ctx_path)], capture_output=True, check=False)
+            except Exception:
+                pass
 
         with open(ctx_path, 'w', encoding='utf-8') as f:
             json.dump(context, f, indent=2)

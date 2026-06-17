@@ -203,7 +203,7 @@ def _resolve_backend_url(config: dict | None = None) -> str:
 
 def _run_onboarding_if_needed():
     """Open the web setup page on first run so onboarding stays browser-based."""
-    if os.environ.get("SKIP_ONBOARDING", "").strip() == "1":
+    if os.environ.get("SKIP_ONBOARDING", "").strip() == "1" or os.environ.get("SKIP_SETUP_OPEN", "").strip() == "1":
         print("[BOOT] Setup launch skipped by environment flag.")
         return
 
@@ -492,37 +492,26 @@ class ActivityMonitor:
             missing.append('pyautogui')
 
         if missing:
-            if 'pyautogui' in missing and len(missing) == 1:
-                self._capture_pipeline_enabled = False
-                self._ocr_pipeline_enabled = False
-                self.log.warning(
-                    'Screenshot capture is unavailable in this session, so OCR capture has been disabled. '
-                    'Tracking will continue without screenshots.'
-                )
-            else:
-                error_msg = 'Missing required OCR dependencies: ' + ', '.join(missing) + '.\n'
-                if 'pytesseract' in missing:
-                    error_msg += 'ERROR: Tesseract OCR is required but not installed.\n'
-                    error_msg += 'This is critical - the application cannot function without Tesseract for screenshot analysis.\n'
-                    error_msg += 'Please run install_and_run.py again to install Tesseract.\n'
-                error_msg += 'Install all requirements.txt dependencies and Tesseract OCR.'
-                raise SystemExit(error_msg)
+            self._capture_pipeline_enabled = False
+            self._ocr_pipeline_enabled = False
+            self.log.warning(
+                'OCR/screenshot dependencies unavailable (%s) — '
+                'tracking continues without screenshot capture.',
+                ', '.join(missing)
+            )
+            return
 
         try:
             pytesseract.pytesseract.tesseract_cmd = _resolve_tesseract_command()
             self.log.info(f"Tesseract engine linked: {pytesseract.pytesseract.tesseract_cmd}")
         except Exception as exc:
-            error_msg = (
-                'CRITICAL: Tesseract OCR executable was not found.\n'
-                'Tesseract is required for screenshot analysis and cannot be bypassed.\n'
-                'Please ensure Tesseract-OCR is installed at one of these locations:\n'
-                '  - Windows: C:\\Program Files\\Tesseract-OCR\\tesseract.exe\n'
-                '  - macOS: /usr/local/bin/tesseract (or /opt/homebrew/bin/tesseract)\n'
-                '  - Linux: /usr/bin/tesseract\n'
-                'Or set TESSERACT_CMD environment variable.\n'
-                f'Original error: {exc}'
+            self._capture_pipeline_enabled = False
+            self._ocr_pipeline_enabled = False
+            self.log.warning(
+                'Tesseract OCR binary not found (%s) — '
+                'screenshot capture disabled; tracking continues without OCR.',
+                exc
             )
-            raise SystemExit(error_msg)
 
     def _persist_local_config(self):
         try:
