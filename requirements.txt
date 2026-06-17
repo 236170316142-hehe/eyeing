@@ -3,7 +3,6 @@ Pillow
 pytesseract
 pywin32
 pypiwin32
-sentence-transformers
 pyautogui
 pyperclip
 pynput
