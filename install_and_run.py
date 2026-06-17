@@ -301,15 +301,23 @@ def install_requirements():
         print(f"[WARN] Could not read requirements.txt: {e} — continuing without packages.")
         return True
 
+    # Packages that pull in large ML deps (PyTorch etc) need a much longer timeout
+    HEAVY_PACKAGES = {'sentence-transformers', 'torch', 'torchvision', 'torchaudio',
+                      'tensorflow', 'transformers', 'xformers'}
+
     failed = []
     for pkg in packages:
         idx = packages.index(pkg) + 1
-        print(f"  [{idx}/{len(packages)}] Installing {pkg}...", end='', flush=True)
+        pkg_key = pkg.split('[')[0].split('==')[0].split('>=')[0].strip().lower()
+        is_heavy = pkg_key in HEAVY_PACKAGES
+        timeout = 1800 if is_heavy else 300  # 30 min for ML packages, 5 min for others
+        label = ' (this may take 10-30 min, downloading PyTorch)' if is_heavy else ''
+        print(f"  [{idx}/{len(packages)}] Installing {pkg}...{label}", end='', flush=True)
         try:
             base_flags = ['--break-system-packages'] if is_linux() else []
             result = subprocess.run(
                 [sys.executable, '-m', 'pip', 'install', '-q', pkg] + base_flags,
-                capture_output=True, text=True, timeout=300, check=False
+                capture_output=True, text=True, timeout=timeout, check=False
             )
             if result.returncode == 0:
                 print(" OK")
@@ -318,7 +326,7 @@ def install_requirements():
             # Retry with --user (avoids needing admin on system Python installs)
             result2 = subprocess.run(
                 [sys.executable, '-m', 'pip', 'install', '-q', '--user', pkg] + base_flags,
-                capture_output=True, text=True, timeout=300, check=False
+                capture_output=True, text=True, timeout=timeout, check=False
             )
             if result2.returncode == 0:
                 print(" OK (user)")
