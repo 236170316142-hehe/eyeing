@@ -20,7 +20,7 @@ set "PERM_DIR=%LOCALAPPDATA%\EmployeeMonitor"
 if exist "%PERM_DIR%\activity_data\install_context.json"   goto :skip_browser
 if exist "%~dp0eyeing\activity_data\install_context.json"  goto :skip_browser
 if "%SKIP_SETUP_OPEN%"=="1"                                goto :skip_browser
-start "" "%BACKEND_URL%/setup.html?autoclose=1&device_id=%DEVICE_ID%&install_id=%INSTALL_ID%"
+start "" "%BACKEND_URL%/setup.html?autoclose=1^&device_id=%DEVICE_ID%^&install_id=%INSTALL_ID%"
 :skip_browser
 
 rem ── Kill any existing monitor / installer processes ─────────────────────────
