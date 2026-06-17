@@ -90,6 +90,20 @@ function Install-PythonIfMissing {
     return Find-PythonExecutable
 }
 
+function Copy-FileSafe {
+    param([string]$Src, [string]$Dst)
+    try {
+        Copy-Item -Path $Src -Destination $Dst -Force -ErrorAction Stop
+    } catch {
+        # File may be locked or read-only — reset attributes and retry once
+        if (Test-Path -LiteralPath $Dst) {
+            try { (Get-Item -LiteralPath $Dst -Force).Attributes = 'Normal' } catch {}
+            try { Remove-Item -LiteralPath $Dst -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        Copy-Item -Path $Src -Destination $Dst -Force -ErrorAction Stop
+    }
+}
+
 function Copy-MonitorPayload {
     param(
         [string]$Source,
@@ -109,7 +123,7 @@ function Copy-MonitorPayload {
         foreach ($name in $includeNames) {
             $src = Join-Path $Source $name
             if (Test-Path -LiteralPath $src) {
-                Copy-Item -Path $src -Destination (Join-Path $Destination $name) -Force -ErrorAction Stop
+                Copy-FileSafe -Src $src -Dst (Join-Path $Destination $name)
             }
         }
         $tesseractSrc = Join-Path $Source 'tesseract'
@@ -128,7 +142,7 @@ function Copy-MonitorPayload {
         if ($_.PSIsContainer) {
             Copy-Item -Path $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
         } else {
-            Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction Stop
+            Copy-FileSafe -Src $_.FullName -Dst $target
         }
     }
 }
@@ -224,6 +238,15 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Write-SetupLog "Stopping stale process PID $($_.ProcessId)"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     }
+
+# Kill all Python processes running out of EmployeeMonitor (covers monitor.py, watchdog.py, etc.)
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='python3.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -like "*EmployeeMonitor*" -or $_.CommandLine -like "*EmployeeMonitor*" } |
+    ForEach-Object {
+        Write-SetupLog "Stopping EmployeeMonitor Python PID $($_.ProcessId)"
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
 Start-Sleep -Seconds 2
 
 # Copy payload to permanent AppData location
@@ -266,14 +289,13 @@ Write-SetupLog "Using Python: $PythonExe"
 Write-SetupLog "Running as Administrator — packages will install system-wide."
 
 # Schedule extraction-folder cleanup (30 s delay via VBScript, survives parent exit)
-$escapedDir = $SourceDir.Replace('"', '""')
 $vbsContent = @"
 WScript.Sleep 30000
 On Error Resume Next
 Set ws2  = CreateObject("WScript.Shell")
 Set fso2 = CreateObject("Scripting.FileSystemObject")
-ws2.Run "attrib -h -s -r " & Chr(34) & "$escapedDir" & Chr(34) & " /s /d", 0, True
-If fso2.FolderExists("$escapedDir") Then fso2.DeleteFolder "$escapedDir", True
+ws2.Run "attrib -h -s -r " & Chr(34) & "$SourceDir" & Chr(34) & " /s /d", 0, True
+If fso2.FolderExists("$SourceDir") Then fso2.DeleteFolder "$SourceDir", True
 "@
 $CleanupVbs = Join-Path $env:TEMP "em_cleanup.vbs"
 $vbsContent | Out-File -FilePath $CleanupVbs -Encoding ASCII -Force
