@@ -420,12 +420,7 @@ def install_requirements():
     print(f"[INFO] Installing {len(core_pkgs)} packages in one batch (pip handles parallel downloads)...")
     t0 = datetime.datetime.now()
 
-    # Try normal install first, retry with --user if permission denied
     ok, failed = _run_pip_batch(core_pkgs, [], 600)
-    if not ok and failed:
-        print(f"[INFO] Retrying {len(failed)} package(s) with --user flag...")
-        ok2, still_failed = _run_pip_batch(failed, ['--user'], 600)
-        failed = still_failed
 
     elapsed = (datetime.datetime.now() - t0).seconds
     if failed:

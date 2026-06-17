@@ -2,6 +2,14 @@ param()   # SourceDir is derived from $PSScriptRoot — do not pass it via -File
 
 $ErrorActionPreference = "Continue"
 
+# ── Require administrator — re-launch elevated if not already ─────────────────
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    $self = $MyInvocation.MyCommand.Path
+    Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$self`"" -Wait
+    exit 0
+}
+
 function Write-SetupLog {
     param([string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
@@ -255,20 +263,7 @@ if (-not $PythonExe) {
 }
 Write-SetupLog "Using Python: $PythonExe"
 
-# Virtual environment for dependency installs without admin rights
-$VenvDir = Join-Path $PermDir "venv"
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $VenvPython)) {
-    Write-SetupLog "Creating virtual environment..."
-    $venvProc = Start-Process -FilePath $PythonExe -ArgumentList "-m venv `"$VenvDir`"" -Wait -PassThru -WindowStyle Hidden
-    if ($venvProc.ExitCode -ne 0) {
-        Write-SetupLog "WARN: venv creation exit code $($venvProc.ExitCode)"
-    }
-}
-if (Test-Path -LiteralPath $VenvPython) {
-    $PythonExe = $VenvPython
-    Write-SetupLog "Using venv Python: $PythonExe"
-}
+Write-SetupLog "Running as Administrator — packages will install system-wide."
 
 # Schedule extraction-folder cleanup (30 s delay via VBScript, survives parent exit)
 $escapedDir = $SourceDir.Replace('"', '""')
