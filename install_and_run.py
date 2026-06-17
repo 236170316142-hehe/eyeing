@@ -233,7 +233,7 @@ def _ensure_pip():
         capture_output=True, timeout=30, check=False
     )
     if check.returncode == 0:
-        return  # pip already present
+        return True  # pip already present
 
     print("[INFO] pip not found — bootstrapping pip...")
 
@@ -244,24 +244,28 @@ def _ensure_pip():
     )
     if r.returncode == 0:
         print("[OK] pip bootstrapped via ensurepip")
-        return
+        return True
 
-    # 2. download get-pip.py — fallback when ensurepip is stripped
+    # 2. download get-pip.py — install to user directory (no admin needed)
     try:
         import urllib.request as _ur
         get_pip = Path(tempfile.gettempdir()) / 'get-pip.py'
         _ur.urlretrieve('https://bootstrap.pypa.io/get-pip.py', str(get_pip))
-        r2 = subprocess.run(
-            [sys.executable, str(get_pip), '-q'],
-            capture_output=True, timeout=180, check=False
-        )
-        if r2.returncode == 0:
-            print("[OK] pip bootstrapped via get-pip.py")
-        else:
-            err = (r2.stderr or r2.stdout or b'').decode(errors='replace').strip()
-            print(f"[WARN] get-pip.py failed: {err[:200]}")
+        # Try system install first, then --user if that fails
+        for extra in [[], ['--user']]:
+            r2 = subprocess.run(
+                [sys.executable, str(get_pip), '-q'] + extra,
+                capture_output=True, timeout=180, check=False
+            )
+            if r2.returncode == 0:
+                mode = 'user directory' if extra else 'system'
+                print(f"[OK] pip bootstrapped via get-pip.py ({mode})")
+                return True
+        err = (r2.stderr or r2.stdout or b'').decode(errors='replace').strip()
+        print(f"[WARN] get-pip.py failed: {err[:200]}")
     except Exception as e:
         print(f"[WARN] Could not bootstrap pip: {e}")
+    return False
 
 
 def install_requirements():
@@ -299,20 +303,31 @@ def install_requirements():
 
     failed = []
     for pkg in packages:
-        print(f"  [{packages.index(pkg)+1}/{len(packages)}] Installing {pkg}...", end='', flush=True)
+        idx = packages.index(pkg) + 1
+        print(f"  [{idx}/{len(packages)}] Installing {pkg}...", end='', flush=True)
         try:
-            extra_args = ['--break-system-packages'] if is_linux() else []
+            base_flags = ['--break-system-packages'] if is_linux() else []
             result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-q', pkg] + extra_args,
+                [sys.executable, '-m', 'pip', 'install', '-q', pkg] + base_flags,
                 capture_output=True, text=True, timeout=300, check=False
             )
             if result.returncode == 0:
                 print(" OK")
-            else:
-                err = (result.stderr or result.stdout or '').strip()
-                print(f" FAILED")
-                print(f"    [WARN] {err[:300] or 'no output'}")
-                failed.append(pkg)
+                continue
+
+            # Retry with --user (avoids needing admin on system Python installs)
+            result2 = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q', '--user', pkg] + base_flags,
+                capture_output=True, text=True, timeout=300, check=False
+            )
+            if result2.returncode == 0:
+                print(" OK (user)")
+                continue
+
+            err = (result2.stderr or result2.stdout or result.stderr or result.stdout or '').strip()
+            print(f" FAILED")
+            print(f"    [WARN] {err[:300] or 'no output'}")
+            failed.append(pkg)
         except subprocess.TimeoutExpired:
             print(f" TIMEOUT (skipped)")
             failed.append(pkg)

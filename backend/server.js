@@ -934,6 +934,21 @@ If pythonExe = "" Then
 End If
 If pythonExe = "" Then pythonExe = "python"
 
+' Create a virtual environment so packages install without admin rights.
+' venv includes pip by default — no system Python pip needed.
+Dim venvDir, venvPython
+venvDir   = permDir & "\\venv"
+venvPython = venvDir & "\\Scripts\\python.exe"
+
+If Not fso.FileExists(venvPython) Then
+  ws.Run Chr(34) & pythonExe & Chr(34) & " -m venv " & Chr(34) & venvDir & Chr(34), 0, True
+End If
+
+' If venv was created successfully, use it; otherwise fall back to system Python
+If fso.FileExists(venvPython) Then
+  pythonExe = venvPython
+End If
+
 ' Run Python installer synchronously — wscript.exe (GUI) stays alive until Python exits
 ' so Python is never killed by console destruction
 ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
