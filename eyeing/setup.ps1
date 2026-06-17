@@ -189,23 +189,39 @@ Write-SetupLog "Backend URL: $BackendUrl"
 $deviceId = $env:COMPUTERNAME
 $installId = "win-$($env:COMPUTERNAME)-$(Get-Random -Minimum 100000 -Maximum 999999)"
 
-$isReinstall = (Test-Path -LiteralPath (Join-Path $PermDir "activity_data\install_context.json")) -or
-               (Test-Path -LiteralPath (Join-Path $SrcEyeing "activity_data\install_context.json"))
-if ($isReinstall) {
-    Write-SetupLog "Reinstall detected - setup page will not reopen"
-    $existingCtx = Join-Path $PermDir "activity_data\install_context.json"
-    if (-not (Test-Path -LiteralPath $existingCtx)) {
-        $existingCtx = Join-Path $SrcEyeing "activity_data\install_context.json"
-    }
-    if (Test-Path -LiteralPath $existingCtx) {
-        try {
-            $ctx = Get-Content $existingCtx -Raw | ConvertFrom-Json
-            if ($ctx.install_id) { $installId = [string]$ctx.install_id }
-            if ($ctx.device_id) { $deviceId = [string]$ctx.device_id }
-            if ($ctx.backend_url) { $BackendUrl = [string]$ctx.backend_url }
-        } catch {}
-    }
+# Load existing install context if a previous install is present (preserves install_id)
+$existingCtxPath = Join-Path $PermDir "activity_data\install_context.json"
+if (-not (Test-Path -LiteralPath $existingCtxPath)) {
+    $existingCtxPath = Join-Path $SrcEyeing "activity_data\install_context.json"
+}
+if (Test-Path -LiteralPath $existingCtxPath) {
+    try {
+        $ctx = Get-Content -LiteralPath $existingCtxPath -Raw | ConvertFrom-Json
+        if ($ctx.install_id) { $installId = [string]$ctx.install_id }
+        if ($ctx.device_id)  { $deviceId  = [string]$ctx.device_id  }
+        if ($ctx.backend_url){ $BackendUrl = [string]$ctx.backend_url }
+        Write-SetupLog "Loaded existing install context (install_id=$installId)"
+    } catch {}
+}
+
+# Open setup page only when employee identity is missing from config.json.
+# Always open it if company_id / user_id are absent - even on reinstall -
+# because the monitor cannot open a browser reliably from an elevated process.
+$hasIdentity = $false
+$configFile = Join-Path $PermDir "activity_data\config.json"
+if (Test-Path -LiteralPath $configFile) {
+    try {
+        $cfg = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
+        if ($cfg -and ([string]$cfg.company_id).Trim() -ne '' -and ([string]$cfg.user_id).Trim() -ne '') {
+            $hasIdentity = $true
+        }
+    } catch {}
+}
+
+if ($hasIdentity) {
+    Write-SetupLog "Identity found (company_id + user_id present) - setup page skipped"
 } else {
+    Write-SetupLog "Identity missing - opening setup page for employee registration"
     $setupUrl = '{0}/setup.html?autoclose=1&device_id={1}&install_id={2}' -f $BackendUrl, $deviceId, $installId
     Open-SetupPage -Url $setupUrl
 }
