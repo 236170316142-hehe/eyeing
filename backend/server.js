@@ -767,10 +767,10 @@ Backend: ${origin}
 
 HOW TO INSTALL
 ==============
-Windows  →  Double-click  Setup.vbs
+Windows  →  Double-click  install.bat
              Your browser opens the onboarding page immediately.
              Everything else (Python, packages, autostart) installs
-             silently in the background — no windows, no prompts.
+             silently in the background.
 
 macOS    →  Double-click  install.command
              Your browser opens the onboarding page immediately.
@@ -1022,9 +1022,8 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   if (platformDefinition.includeBatchLauncher) {
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
-      archive.file(installBat, { name: 'eyeing/install.bat' });
+      archive.file(installBat, { name: 'install.bat' });  // at root — employee double-clicks this
     }
-    archive.append(buildWindowsVbsLauncher(origin), { name: 'Setup.vbs' });
   }
 
   if (platformDefinition.includeWindowsAutomation) {
