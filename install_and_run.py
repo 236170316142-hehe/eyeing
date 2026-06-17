@@ -300,33 +300,57 @@ def _install_one(pkg, base_flags, timeout):
 
 
 def _start_background_heavy_install(packages):
-    """Launch a fully detached process to install heavy ML packages after monitor is running."""
+    """Launch a fully detached process to install heavy ML packages.
+    Restarts monitor.py when done so the new packages are loaded immediately."""
     if not packages:
         return
-    log_path = str(script_dir() / 'setup_log.txt')
-    py_exe   = sys.executable
+    log_path     = str(script_dir() / 'setup_log.txt')
+    py_exe       = sys.executable
+    monitor_path = str(script_dir() / 'monitor.py')
 
-    # Write a small self-contained script to a temp file
     lines = [
         'import subprocess, sys, time',
-        f'LOG  = {log_path!r}',
-        f'PKGS = {packages!r}',
-        f'PY   = {py_exe!r}',
-        'time.sleep(20)',
+        f'LOG     = {log_path!r}',
+        f'PKGS    = {packages!r}',
+        f'PY      = {py_exe!r}',
+        f'MONITOR = {monitor_path!r}',
+        '',
+        '# Wait for monitor to be fully running before we start the heavy download',
+        'time.sleep(30)',
+        '',
         'with open(LOG, "a", encoding="utf-8", buffering=1) as lf:',
-        '    lf.write("\\n[BACKGROUND] Installing heavy packages...\\n")',
+        '    lf.write("\\n[BACKGROUND] Installing heavy packages (10-30 min depending on connection)...\\n")',
+        '    all_ok = True',
         '    for pkg in PKGS:',
         '        lf.write(f"[BACKGROUND] Installing {pkg}...\\n"); lf.flush()',
+        '        ok = False',
         '        for extra in [[], ["--user"]]:',
         '            r = subprocess.run([PY, "-m", "pip", "install", "-q", "--prefer-binary", pkg] + extra,',
         '                               capture_output=True, text=True, timeout=3600, check=False)',
         '            if r.returncode == 0:',
-        '                lf.write(f"[BACKGROUND] {pkg}: OK\\n"); lf.flush(); break',
-        '        else:',
+        '                lf.write(f"[BACKGROUND] {pkg}: OK\\n"); lf.flush(); ok = True; break',
+        '        if not ok:',
         '            err = (r.stderr or r.stdout or "").strip()[:200]',
-        '            lf.write(f"[BACKGROUND] {pkg}: FAILED {err}\\n"); lf.flush()',
-        '    lf.write("[BACKGROUND] Done.\\n")',
+        '            lf.write(f"[BACKGROUND] {pkg}: FAILED — {err}\\n"); lf.flush()',
+        '            all_ok = False',
+        '    lf.write("[BACKGROUND] Heavy install done. Restarting monitor to load new packages...\\n")',
+        '',
+        '# Kill monitor so watchdog restarts it within 60 s with new packages loaded',
+        'try:',
+        '    if sys.platform == "win32":',
+        '        subprocess.run(',
+        '            ["powershell", "-NoProfile", "-Command",',
+        '             "Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -match \'monitor\\.py\'}"',
+        '             " | ForEach-Object {Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}"],',
+        '            capture_output=True, timeout=30, check=False)',
+        '    else:',
+        '        subprocess.run(["pkill", "-f", "monitor.py"], capture_output=True, check=False)',
+        'except Exception:',
+        '    pass',
+        'with open(LOG, "a", encoding="utf-8", buffering=1) as lf:',
+        '    lf.write("[BACKGROUND] Monitor restarted — all heavy packages now active.\\n")',
     ]
+
     bg_script = Path(tempfile.gettempdir()) / 'em_heavy_install.py'
     bg_script.write_text('\n'.join(lines), encoding='utf-8')
 
@@ -346,7 +370,8 @@ def _start_background_heavy_install(packages):
                 start_new_session=True,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-        print(f"[INFO] {', '.join(packages)} queued for background install — monitor starts now.")
+        print(f"[INFO] {', '.join(packages)} queued for background install.")
+        print(f"       Monitor starts now and will auto-restart once heavy packages are ready.")
     except Exception as e:
         print(f"[WARN] Could not start background installer: {e}")
 
@@ -572,59 +597,55 @@ def try_install_tesseract_linux():
     print("[WARN] All automatic install methods failed for Linux.")
     return False
 
+def _tesseract_install_paths():
+    """Return Tesseract install paths to try, in priority order (admin path first, user path fallback)."""
+    local_app = os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))
+    return [
+        r'C:\Program Files\Tesseract-OCR',
+        os.path.join(local_app, 'Programs', 'Tesseract-OCR'),  # no admin needed, already in candidates
+    ]
+
+
 def download_tesseract_windows():
-    """Download and install Tesseract-OCR from official GitHub releases."""
+    """Download and install Tesseract-OCR; tries system path then user-local path."""
     print("[INFO] Downloading Tesseract OCR installer...")
-    
-    # Official Tesseract Windows installer
     tesseract_url = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe"
-    install_path = r"C:\Program Files\Tesseract-OCR"
-    
+
     with tempfile.NamedTemporaryFile(suffix='.exe', delete=False) as tmp:
         installer_path = tmp.name
-    
+
     try:
-        # Download the installer
         print(f"  Downloading from: {tesseract_url}")
-        
-        def report_progress(block_num, block_size, total_size):
+
+        def _progress(block_num, block_size, total_size):
             if total_size > 0:
-                downloaded = min(block_num * block_size, total_size)
-                percent = (downloaded * 100) // total_size
-                print(f"\r  Progress: {percent}%", end='', flush=True)
-        
-        urllib.request.urlretrieve(tesseract_url, installer_path, reporthook=report_progress)
+                pct = min(100, (block_num * block_size * 100) // total_size)
+                print(f"\r  Progress: {pct}%", end='', flush=True)
+
+        urllib.request.urlretrieve(tesseract_url, installer_path, reporthook=_progress)
         print("\n  Download complete!")
-        
-        # Run the installer silently
-        print("[INFO] Running Tesseract installer (this may take a minute)...")
-        result = subprocess.run(
-            [installer_path, '/S', '/D=' + install_path],
-            capture_output=True,
-            check=False
-        )
-        
-        if result.returncode == 0:
-            print("[OK] Tesseract installed successfully!")
-            # Wait a moment for the installation to complete
-            import time
-            time.sleep(2)
-            return True
-        else:
-            stderr = result.stderr.decode() if result.stderr else ""
-            print(f"[WARN] Installer reported an issue: {stderr}")
-            # Still check if it was installed despite the return code
-            if os.path.exists(os.path.join(install_path, 'tesseract.exe')):
-                print("[OK] Tesseract appears to be installed despite installer warning.")
+
+        for install_path in _tesseract_install_paths():
+            print(f"[INFO] Running Tesseract installer → {install_path} ...")
+            result = subprocess.run(
+                [installer_path, '/S', f'/D={install_path}'],
+                capture_output=True, check=False, timeout=300
+            )
+            import time; time.sleep(2)
+            if result.returncode == 0 or os.path.exists(os.path.join(install_path, 'tesseract.exe')):
+                print(f"[OK] Tesseract installed to {install_path}")
                 return True
-            return False
+            print(f"[WARN] Install to {install_path} failed (returncode {result.returncode}) — trying next path...")
+
+        print("[WARN] Tesseract installer did not succeed on any path.")
+        return False
     except Exception as e:
         print(f"[ERROR] Failed to download/install Tesseract: {e}")
         return False
     finally:
         try:
             os.unlink(installer_path)
-        except:
+        except Exception:
             pass
 
 def try_install_tesseract_windows():
@@ -640,23 +661,18 @@ def try_install_tesseract_windows():
     for installer_path in bundled_installers:
         if installer_path.exists():
             print(f"[INFO] Found bundled Tesseract installer: {installer_path.name}")
-            print("[INFO] Running bundled Tesseract installer...")
-            try:
-                install_path = r"C:\Program Files\Tesseract-OCR"
-                result = subprocess.run(
-                    [str(installer_path), '/S', '/D=' + install_path],
-                    capture_output=True,
-                    check=False,
-                    timeout=300
-                )
-                
-                if result.returncode == 0 or os.path.exists(os.path.join(install_path, 'tesseract.exe')):
-                    print("[OK] Tesseract installed from bundled installer!")
-                    import time
-                    time.sleep(2)
-                    return True
-            except Exception as e:
-                print(f"[WARN] Bundled installer failed: {e}")
+            for install_path in _tesseract_install_paths():
+                try:
+                    result = subprocess.run(
+                        [str(installer_path), '/S', f'/D={install_path}'],
+                        capture_output=True, check=False, timeout=300
+                    )
+                    import time; time.sleep(2)
+                    if result.returncode == 0 or os.path.exists(os.path.join(install_path, 'tesseract.exe')):
+                        print(f"[OK] Tesseract installed from bundled installer to {install_path}")
+                        return True
+                except Exception as e:
+                    print(f"[WARN] Bundled installer to {install_path} failed: {e}")
     
     # Try built-in package managers (fast if available)
     package_managers = [
