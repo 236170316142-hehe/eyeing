@@ -6,6 +6,8 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
+const http = require('http');
 const archiver = require('archiver');
 const { spawn } = require('child_process');
 const { OAuth2Client } = require('google-auth-library');
@@ -25,6 +27,57 @@ const ADMIN_USERNAME = String(process.env.ADMIN_USERNAME || '').trim();
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
 const HAS_ADMIN_AUTH = Boolean(ADMIN_USERNAME && ADMIN_PASSWORD);
 const googleOAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// ── Tesseract installer cache ─────────────────────────────────────────────────
+// Downloaded once at startup and re-used for all ZIP requests.
+// Stored in os.tmpdir() which persists for the lifetime of the process.
+const TESSERACT_INSTALLER_URL = 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe';
+const TESSERACT_CACHE_PATH = path.join(os.tmpdir(), 'tesseract-ocr-w64-setup.exe');
+
+let _tesseractReady = false;
+
+function _downloadFile(url, dest, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) return reject(new Error('Too many redirects'));
+    const client = url.startsWith('https') ? https : http;
+    const req = client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return _downloadFile(res.headers.location, dest, redirectCount + 1).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      const file = fs.createWriteStream(dest);
+      res.pipe(file);
+      file.on('finish', () => file.close(resolve));
+      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err); });
+    });
+    req.on('error', reject);
+    req.setTimeout(120000, () => { req.destroy(); reject(new Error('Download timeout')); });
+  });
+}
+
+async function downloadTesseractInstaller() {
+  // Already cached from this process run
+  if (_tesseractReady) return;
+  // File left over from a previous warm restart — reuse it
+  if (fs.existsSync(TESSERACT_CACHE_PATH)) {
+    const size = Math.round(fs.statSync(TESSERACT_CACHE_PATH).size / 1024 / 1024);
+    if (size > 10) { // sanity check: real installer is ~36 MB
+      _tesseractReady = true;
+      console.log(`[+] Tesseract installer already cached (${size} MB).`);
+      return;
+    }
+  }
+  try {
+    console.log('[*] Downloading Tesseract installer for bundling (~36 MB)...');
+    await _downloadFile(TESSERACT_INSTALLER_URL, TESSERACT_CACHE_PATH);
+    const size = Math.round(fs.statSync(TESSERACT_CACHE_PATH).size / 1024 / 1024);
+    _tesseractReady = true;
+    console.log(`[+] Tesseract installer cached (${size} MB) — bundled in Windows ZIPs.`);
+  } catch (err) {
+    console.warn(`[!] Could not cache Tesseract installer: ${err.message}`);
+    console.warn('    Windows ZIPs still work — monitor falls back to winget/web download.');
+  }
+}
 
 function getPublicBaseUrl(req) {
   if (PUBLIC_BACKEND_URL) {
@@ -1064,6 +1117,13 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
   const tesseractDir = getBundledTesseractDir(platformKey);
   if (tesseractDir) {
     addDirectoryRecursive(archive, tesseractDir, 'tesseract');
+  }
+
+  // Bundle the Tesseract installer for Windows so employees don't need internet access
+  // during setup. install_and_run.py looks for 'tesseract-ocr-w64-setup.exe' in script_dir().
+  if ((platformKey === 'windows' || platformKey === 'enterprise') &&
+      _tesseractReady && fs.existsSync(TESSERACT_CACHE_PATH)) {
+    archive.file(TESSERACT_CACHE_PATH, { name: 'eyeing/tesseract-ocr-w64-setup.exe' });
   }
 
   if (platformDefinition.includeUnixLauncher) {
@@ -2859,4 +2919,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   Database URL: ${MONGO_URI}`);
   console.log(`================================\n`);
+  // Download Tesseract installer in background — non-blocking, fails gracefully
+  downloadTesseractInstaller().catch(() => {});
 });
