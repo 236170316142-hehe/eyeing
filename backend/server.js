@@ -944,7 +944,10 @@ ws.Run Chr(34) & pythonExe & Chr(34) & " " & Chr(34) & permDir & "\\install_and_
 cleanupVbs = ws.ExpandEnvironmentStrings("%TEMP%") & "\\em_cleanup.vbs"
 Set cv = fso.CreateTextFile(cleanupVbs, True)
 cv.WriteLine "WScript.Sleep 30000"
+cv.WriteLine "On Error Resume Next"
+cv.WriteLine "Set ws2  = CreateObject(""WScript.Shell"")"
 cv.WriteLine "Set fso2 = CreateObject(""Scripting.FileSystemObject"")"
+cv.WriteLine "ws2.Run ""attrib -h -s -r "" & Chr(34) & """ & extractParent & """ & Chr(34) & "" /s /d"", 0, True"
 cv.WriteLine "If fso2.FolderExists(""" & extractParent & """) Then fso2.DeleteFolder """ & extractParent & """, True"
 cv.Close
 ws.Run "wscript.exe " & Chr(34) & cleanupVbs & Chr(34), 0, False

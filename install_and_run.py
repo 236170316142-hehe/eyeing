@@ -226,10 +226,54 @@ def install_python():
 
 
 
+def _ensure_pip():
+    """Bootstrap pip if it is missing from the Python installation."""
+    check = subprocess.run(
+        [sys.executable, '-m', 'pip', '--version'],
+        capture_output=True, timeout=30, check=False
+    )
+    if check.returncode == 0:
+        return  # pip already present
+
+    print("[INFO] pip not found — bootstrapping pip...")
+
+    # 1. ensurepip — built into CPython, works offline
+    r = subprocess.run(
+        [sys.executable, '-m', 'ensurepip', '--upgrade'],
+        capture_output=True, timeout=90, check=False
+    )
+    if r.returncode == 0:
+        print("[OK] pip bootstrapped via ensurepip")
+        return
+
+    # 2. download get-pip.py — fallback when ensurepip is stripped
+    try:
+        import urllib.request as _ur
+        get_pip = Path(tempfile.gettempdir()) / 'get-pip.py'
+        _ur.urlretrieve('https://bootstrap.pypa.io/get-pip.py', str(get_pip))
+        r2 = subprocess.run(
+            [sys.executable, str(get_pip), '-q'],
+            capture_output=True, timeout=180, check=False
+        )
+        if r2.returncode == 0:
+            print("[OK] pip bootstrapped via get-pip.py")
+        else:
+            err = (r2.stderr or r2.stdout or b'').decode(errors='replace').strip()
+            print(f"[WARN] get-pip.py failed: {err[:200]}")
+    except Exception as e:
+        print(f"[WARN] Could not bootstrap pip: {e}")
+
+
 def install_requirements():
     print("\n[INFO] Installing required Python packages one by one...")
 
-    # Upgrade pip first so newer package metadata works
+    # Make sure pip exists before trying to use it
+    try:
+        _ensure_pip()
+    except Exception as e:
+        print(f"[WARN] pip bootstrap error: {e}")
+
+    # Upgrade pip itself
     try:
         subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', '-q'],
