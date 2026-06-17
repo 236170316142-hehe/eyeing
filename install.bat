@@ -9,7 +9,7 @@ if not exist "%~dp0eyeing\setup.ps1" (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0eyeing\setup.ps1" -SourceDir "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0eyeing\setup.ps1"
 set EXITCODE=%ERRORLEVEL%
 
 if not "%EXITCODE%"=="0" (

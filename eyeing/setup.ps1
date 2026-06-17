@@ -1,4 +1,4 @@
-param([string]$SourceDir = "")
+param()   # SourceDir is derived from $PSScriptRoot — do not pass it via -File args
 
 $ErrorActionPreference = "Continue"
 
@@ -49,7 +49,7 @@ function Find-PythonExecutable {
         "C:\Program Files\Python310\python.exe"
     )
     foreach ($candidate in $paths) {
-        if (Test-Path $candidate) { return $candidate }
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
 
     $cmd = Get-Command python -ErrorAction SilentlyContinue
@@ -60,14 +60,14 @@ function Find-PythonExecutable {
 
 function Install-PythonIfMissing {
     param([string]$CurrentExe)
-    if ($CurrentExe -and (Test-Path $CurrentExe)) { return $CurrentExe }
+    if ($CurrentExe -and (Test-Path -LiteralPath $CurrentExe)) { return $CurrentExe }
 
     Write-SetupLog "Python not found. Downloading Python 3.12..."
     $PyInst = Join-Path $env:TEMP "python_setup.exe"
     try {
         Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe" `
             -OutFile $PyInst -UseBasicParsing -TimeoutSec 180
-        if (-not (Test-Path $PyInst)) {
+        if (-not (Test-Path -LiteralPath $PyInst)) {
             throw "Python installer download failed."
         }
         $proc = Start-Process -FilePath $PyInst -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1" -Wait -PassThru -WindowStyle Hidden
@@ -89,7 +89,7 @@ function Copy-MonitorPayload {
         [switch]$RootLayout
     )
 
-    if (-not (Test-Path $Destination)) {
+    if (-not (Test-Path -LiteralPath $Destination)) {
         New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     }
 
@@ -100,18 +100,18 @@ function Copy-MonitorPayload {
         )
         foreach ($name in $includeNames) {
             $src = Join-Path $Source $name
-            if (Test-Path $src) {
+            if (Test-Path -LiteralPath $src) {
                 Copy-Item -Path $src -Destination (Join-Path $Destination $name) -Force -ErrorAction Stop
             }
         }
         $tesseractSrc = Join-Path $Source 'tesseract'
-        if (Test-Path $tesseractSrc) {
+        if (Test-Path -LiteralPath $tesseractSrc) {
             Copy-Item -Path $tesseractSrc -Destination (Join-Path $Destination 'tesseract') -Recurse -Force -ErrorAction Stop
         }
         return
     }
 
-    if (-not (Test-Path $Source)) {
+    if (-not (Test-Path -LiteralPath $Source)) {
         throw "Source folder not found: $Source"
     }
 
@@ -125,14 +125,15 @@ function Copy-MonitorPayload {
     }
 }
 
-# Resolve source dir - fallback to script's parent if not passed
-if (-not $SourceDir -or -not (Test-Path $SourceDir)) {
-    $SourceDir = Split-Path -Parent $PSScriptRoot
-}
+# setup.ps1 lives at <extraction_root>\eyeing\setup.ps1
+# $PSScriptRoot is set automatically by PowerShell to the containing folder.
+# Parent of $PSScriptRoot  =  the extraction root (where install.bat lives).
+$SourceDir = Split-Path -Parent $PSScriptRoot
+if (-not $SourceDir) { $SourceDir = $PSScriptRoot }
 $SourceDir = $SourceDir.TrimEnd('\')
 
 $PermDir = Join-Path $env:LOCALAPPDATA "EmployeeMonitor"
-if (-not (Test-Path $PermDir)) {
+if (-not (Test-Path -LiteralPath $PermDir)) {
     New-Item -ItemType Directory -Path $PermDir -Force | Out-Null
 }
 $script:LogFile = Join-Path $PermDir "setup_log.txt"
@@ -143,7 +144,7 @@ Write-SetupLog "SourceDir: $SourceDir"
 
 $SrcEyeing = Join-Path $SourceDir "eyeing"
 $UseRootLayout = $false
-if (-not (Test-Path (Join-Path $SrcEyeing "install_and_run.py")) -and (Test-Path (Join-Path $SourceDir "install_and_run.py"))) {
+if (-not (Test-Path -LiteralPath (Join-Path $SrcEyeing "install_and_run.py")) -and (Test-Path -LiteralPath (Join-Path $SourceDir "install_and_run.py"))) {
     Write-SetupLog "Using package root as source (dev/fallback layout)"
     $UseRootLayout = $true
 }
@@ -151,13 +152,13 @@ if (-not (Test-Path (Join-Path $SrcEyeing "install_and_run.py")) -and (Test-Path
 # Backend URL
 $BackendUrl = "https://eyeing.onrender.com"
 $UrlFile = Join-Path $SrcEyeing "backend_url.txt"
-if (-not (Test-Path $UrlFile)) {
+if (-not (Test-Path -LiteralPath $UrlFile)) {
     $UrlFile = Join-Path $SourceDir "eyeing\backend_url.txt"
 }
-if (-not (Test-Path $UrlFile) -and $UseRootLayout) {
+if (-not (Test-Path -LiteralPath $UrlFile) -and $UseRootLayout) {
     $UrlFile = Join-Path $SourceDir "backend_url.txt"
 }
-if (Test-Path $UrlFile) {
+if (Test-Path -LiteralPath $UrlFile) {
     $t = (Get-Content $UrlFile -Raw -ErrorAction SilentlyContinue).Trim()
     if ($t) { $BackendUrl = $t }
 }
@@ -166,15 +167,15 @@ Write-SetupLog "Backend URL: $BackendUrl"
 $deviceId = $env:COMPUTERNAME
 $installId = "win-$($env:COMPUTERNAME)-$(Get-Random -Minimum 100000 -Maximum 999999)"
 
-$isReinstall = (Test-Path (Join-Path $PermDir "activity_data\install_context.json")) -or
-               (Test-Path (Join-Path $SrcEyeing "activity_data\install_context.json"))
+$isReinstall = (Test-Path -LiteralPath (Join-Path $PermDir "activity_data\install_context.json")) -or
+               (Test-Path -LiteralPath (Join-Path $SrcEyeing "activity_data\install_context.json"))
 if ($isReinstall) {
     Write-SetupLog "Reinstall detected - setup page will not reopen"
     $existingCtx = Join-Path $PermDir "activity_data\install_context.json"
-    if (-not (Test-Path $existingCtx)) {
+    if (-not (Test-Path -LiteralPath $existingCtx)) {
         $existingCtx = Join-Path $SrcEyeing "activity_data\install_context.json"
     }
-    if (Test-Path $existingCtx) {
+    if (Test-Path -LiteralPath $existingCtx) {
         try {
             $ctx = Get-Content $existingCtx -Raw | ConvertFrom-Json
             if ($ctx.install_id) { $installId = [string]$ctx.install_id }
@@ -234,7 +235,7 @@ try {
 
 # Persist install identity before Python installer runs
 $ctxDir = Join-Path $PermDir "activity_data"
-if (-not (Test-Path $ctxDir)) {
+if (-not (Test-Path -LiteralPath $ctxDir)) {
     New-Item -ItemType Directory -Path $ctxDir -Force | Out-Null
 }
 @{
@@ -257,14 +258,14 @@ Write-SetupLog "Using Python: $PythonExe"
 # Virtual environment for dependency installs without admin rights
 $VenvDir = Join-Path $PermDir "venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-if (-not (Test-Path $VenvPython)) {
+if (-not (Test-Path -LiteralPath $VenvPython)) {
     Write-SetupLog "Creating virtual environment..."
     $venvProc = Start-Process -FilePath $PythonExe -ArgumentList "-m venv `"$VenvDir`"" -Wait -PassThru -WindowStyle Hidden
     if ($venvProc.ExitCode -ne 0) {
         Write-SetupLog "WARN: venv creation exit code $($venvProc.ExitCode)"
     }
 }
-if (Test-Path $VenvPython) {
+if (Test-Path -LiteralPath $VenvPython) {
     $PythonExe = $VenvPython
     Write-SetupLog "Using venv Python: $PythonExe"
 }
@@ -290,7 +291,7 @@ $env:DEVICE_ID = $deviceId
 $env:BACKEND_URL = $BackendUrl
 
 $InstallerScript = Join-Path $PermDir "install_and_run.py"
-if (-not (Test-Path $InstallerScript)) {
+if (-not (Test-Path -LiteralPath $InstallerScript)) {
     Write-SetupLog "ERROR: install_and_run.py not found at $InstallerScript"
     exit 1
 }
