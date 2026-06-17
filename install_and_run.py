@@ -16,7 +16,6 @@ import platform
 import socket
 import signal
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
 PYTHON_VERSION_MIN = (3, 8)
@@ -279,25 +278,6 @@ _HEAVY_PACKAGES = frozenset({
 def _pkg_key(spec):
     return spec.split('[')[0].split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip().lower()
 
-def _install_one(pkg, base_flags, timeout):
-    """Install one package; retries with --user on permission errors. Returns (status, err)."""
-    last_err = ''
-    for extra in [[], ['--user']]:
-        try:
-            r = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-q', '--prefer-binary', pkg]
-                + base_flags + extra,
-                capture_output=True, text=True, timeout=timeout, check=False
-            )
-            if r.returncode == 0:
-                return ('OK (user)' if extra else 'OK'), None
-            last_err = (r.stderr or r.stdout or '').strip()
-        except subprocess.TimeoutExpired:
-            return 'TIMEOUT', None
-        except Exception as e:
-            return 'ERROR', str(e)
-    return 'FAILED', last_err[:300]
-
 
 def _start_background_heavy_install(packages):
     """Launch a fully detached process to install heavy ML packages.
@@ -376,17 +356,40 @@ def _start_background_heavy_install(packages):
         print(f"[WARN] Could not start background installer: {e}")
 
 
+def _run_pip_batch(pkgs, extra_flags, timeout):
+    """Install a list of packages in one pip call. Returns (ok, failed_list)."""
+    if not pkgs:
+        return True, []
+    base = ['--break-system-packages'] if is_linux() else []
+    r = subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', '-q', '--prefer-binary'] + extra_flags + base + pkgs,
+        capture_output=True, text=True, timeout=timeout, check=False
+    )
+    if r.returncode == 0:
+        return True, []
+    # Batch failed — identify which individual packages fail so the rest still install
+    failed = []
+    for pkg in pkgs:
+        r2 = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-q', '--prefer-binary'] + extra_flags + base + [pkg],
+            capture_output=True, text=True, timeout=timeout, check=False
+        )
+        if r2.returncode != 0:
+            failed.append(pkg)
+    return len(failed) == 0, failed
+
+
 def install_requirements():
     import datetime
-    print("\n[INFO] Installing required Python packages...")
+    print("\n[INFO] Installing packages...")
 
-    # Ensure pip is available (venv always has it; bare Python may not)
+    # Ensure pip exists (venv always has it; bare Python installs may not)
     try:
         _ensure_pip()
     except Exception as e:
         print(f"[WARN] pip bootstrap: {e}")
 
-    # Upgrade pip quietly so newer metadata works
+    # Upgrade pip so package metadata resolves correctly
     try:
         subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', '-q', '--prefer-binary'],
@@ -410,40 +413,28 @@ def install_requirements():
         print(f"[WARN] Could not read requirements.txt: {e}")
         return True
 
-    base_flags   = ['--break-system-packages'] if is_linux() else []
-    core_pkgs    = [p for p in all_pkgs if _pkg_key(p) not in _HEAVY_PACKAGES]
-    heavy_pkgs   = [p for p in all_pkgs if _pkg_key(p) in _HEAVY_PACKAGES]
+    core_pkgs  = [p for p in all_pkgs if _pkg_key(p) not in _HEAVY_PACKAGES]
+    heavy_pkgs = [p for p in all_pkgs if _pkg_key(p) in _HEAVY_PACKAGES]
 
-    # ── Parallel install of core packages ────────────────────────────────────
-    print(f"[INFO] Installing {len(core_pkgs)} core packages in parallel (this takes ~1-2 min)...")
+    # ── Core packages: ONE pip call (pip downloads in parallel internally) ──
+    print(f"[INFO] Installing {len(core_pkgs)} packages in one batch (pip handles parallel downloads)...")
     t0 = datetime.datetime.now()
-    failed = []
-    completed = [0]
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_install_one, pkg, base_flags, 300): pkg for pkg in core_pkgs}
-        for future in as_completed(futures):
-            pkg = futures[future]
-            completed[0] += 1
-            try:
-                status, err = future.result()
-            except Exception as exc:
-                status, err = 'ERROR', str(exc)
-
-            tag = 'OK' if status.startswith('OK') else status
-            print(f"  [{completed[0]}/{len(core_pkgs)}] {pkg}: {tag}")
-            if err:
-                print(f"    [WARN] {err}")
-            if not status.startswith('OK'):
-                failed.append(pkg)
+    # Try normal install first, retry with --user if permission denied
+    ok, failed = _run_pip_batch(core_pkgs, [], 600)
+    if not ok and failed:
+        print(f"[INFO] Retrying {len(failed)} package(s) with --user flag...")
+        ok2, still_failed = _run_pip_batch(failed, ['--user'], 600)
+        failed = still_failed
 
     elapsed = (datetime.datetime.now() - t0).seconds
     if failed:
-        print(f"[WARN] {len(failed)} package(s) failed: {', '.join(failed)}")
+        print(f"[WARN] {len(failed)} package(s) could not install: {', '.join(failed)}")
+        print(f"       Monitor will start — those features will be limited.")
     else:
-        print(f"[OK] All {len(core_pkgs)} core packages installed in {elapsed}s.")
+        print(f"[OK] All {len(core_pkgs)} packages installed in {elapsed}s.")
 
-    # pywin32 needs a post-install step on Windows
+    # pywin32 post-install step (Windows only, no-op if it fails)
     if is_windows():
         try:
             subprocess.run(
@@ -453,11 +444,11 @@ def install_requirements():
         except Exception:
             pass
 
-    # ── Heavy packages: install in background, don't block monitor startup ──
+    # ── Heavy packages: background process, monitor starts without waiting ──
     if heavy_pkgs:
         _start_background_heavy_install(heavy_pkgs)
 
-    return True  # Always return True — monitor must start regardless
+    return True  # Always — monitor must start regardless of package failures
 
 
 def _run_pkg_cmd(label, cmd, timeout=300):
