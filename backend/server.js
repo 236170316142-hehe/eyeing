@@ -1748,18 +1748,37 @@ app.post('/api/tracker/heartbeat', async (req, res) => {
     const queuedCount = Number.isFinite(queuedRaw) && queuedRaw >= 0 ? Math.floor(queuedRaw) : 0;
     const identityResolved = Boolean(req.body.identity_resolved) || !shouldResolveIdentity(companyId, userId);
 
+    // Detect reinstall after decommission: same user but different install_id means a fresh
+    // install happened after the monitor was decommissioned. Reset the flag so the monitor runs.
+    const existingStatus = await TrackingStatus.findOne(
+      { company_id: companyId, user_id: userId },
+      'is_decommissioned last_install_id'
+    ).lean();
+    const isReinstallAfterDecommission = existingStatus &&
+      existingStatus.is_decommissioned &&
+      existingStatus.last_install_id &&
+      existingStatus.last_install_id !== installId;
+
+    const heartbeatSet = {
+      last_seen_at: new Date(),
+      last_monitor_heartbeat_at: new Date(),
+      identity_resolved: identityResolved,
+      queued_local_report_count: queuedCount,
+      last_device_id: deviceId,
+      last_install_id: installId,
+      last_updated_by: 'monitor-heartbeat'
+    };
+    if (isReinstallAfterDecommission) {
+      heartbeatSet.is_decommissioned = false;
+      heartbeatSet.is_tracking_active = true;
+      heartbeatSet.decommission_requested_at = null;
+      console.log(`[Heartbeat] Reinstall detected for ${userId}@${companyId} (${existingStatus.last_install_id} → ${installId}) — decommission cleared.`);
+    }
+
     await TrackingStatus.findOneAndUpdate(
       { company_id: companyId, user_id: userId },
       {
-        $set: {
-          last_seen_at: new Date(),
-          last_monitor_heartbeat_at: new Date(),
-          identity_resolved: identityResolved,
-          queued_local_report_count: queuedCount,
-          last_device_id: deviceId,
-          last_install_id: installId,
-          last_updated_by: 'monitor-heartbeat'
-        },
+        $set: heartbeatSet,
         $setOnInsert: {
           is_tracking_active: true,
           is_decommissioned: false,

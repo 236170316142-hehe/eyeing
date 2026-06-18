@@ -197,10 +197,11 @@ if (-not (Test-Path -LiteralPath $existingCtxPath)) {
 if (Test-Path -LiteralPath $existingCtxPath) {
     try {
         $ctx = Get-Content -LiteralPath $existingCtxPath -Raw | ConvertFrom-Json
-        if ($ctx.install_id) { $installId = [string]$ctx.install_id }
+        # Always generate a fresh install_id so the backend can detect reinstalls
+        # and reset any stale decommission flag. device_id and backend_url are preserved.
         if ($ctx.device_id)  { $deviceId  = [string]$ctx.device_id  }
         if ($ctx.backend_url){ $BackendUrl = [string]$ctx.backend_url }
-        Write-SetupLog "Loaded existing install context (install_id=$installId)"
+        Write-SetupLog "Loaded existing install context (new install_id=$installId)"
     } catch {}
 }
 

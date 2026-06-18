@@ -1557,10 +1557,11 @@ rm -rf {shlex.quote(folder_path)}
         # This runs before anything else so the badge clears immediately on startup.
         self._check_and_confirm_pending_update()
 
-        # --- Immediate startup auth check: get admin-configured interval BEFORE first report ---
-        should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
+        # --- Startup: heartbeat first so backend can clear any stale decommission flag
+        # (new install_id signals a reinstall), THEN check auth against the updated state ---
         self._send_pipeline_heartbeat()
         self._last_heartbeat_ts = time.time()
+        should_track, is_decommissioned, remote_interval = self._check_remote_authorization()
         if is_decommissioned:
             self._self_destruct()
             return
