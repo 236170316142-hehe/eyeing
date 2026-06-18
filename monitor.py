@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Employee Activity Monitor
 Monitors active window, takes screenshots, performs OCR, and generates JSON reports.
@@ -45,7 +45,7 @@ except ImportError:
     HAS_PYAUTOGUI = False
 
 try:
-    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageGrab
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -489,8 +489,8 @@ class ActivityMonitor:
             missing.append('pytesseract')
         if not HAS_PIL:
             missing.append('Pillow')
-        if not HAS_PYAUTOGUI or not _has_gui_screenshot_session():
-            missing.append('pyautogui')
+        if not HAS_PIL and not HAS_PYAUTOGUI:
+            missing.append('screenshot-library')
 
         if missing:
             self._capture_pipeline_enabled = False
@@ -866,17 +866,38 @@ class ActivityMonitor:
             self.log.debug("[PIPELINE] Capture disabled, skipping screenshot/OCR.")
             return "", 0.0, 0
 
-        if not HAS_PYAUTOGUI or not _has_gui_screenshot_session():
+        if not HAS_PIL and not HAS_PYAUTOGUI:
             self.log.warning("Screenshot capture is unavailable in this session. Disabling capture pipeline.")
+            self._capture_pipeline_enabled = False
+            self._ocr_pipeline_enabled = False
+            return "", 0.0, 0
+
+        if not _has_gui_screenshot_session():
+            self.log.warning("No GUI session detected. Disabling capture pipeline.")
             self._capture_pipeline_enabled = False
             self._ocr_pipeline_enabled = False
             return "", 0.0, 0
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         img_path = SCREENSHOTS_DIR / f"screenshot_{ts}.png"
-        
+
+        raw_img = None
+        # PIL.ImageGrab is more reliable on Windows than pyautogui's backend
+        if HAS_PIL:
+            try:
+                raw_img = ImageGrab.grab(all_screens=True)
+            except Exception:
+                raw_img = None
+        if raw_img is None and HAS_PYAUTOGUI:
+            try:
+                raw_img = pyautogui.screenshot()
+            except Exception:
+                raw_img = None
+        if raw_img is None:
+            self.log.error("Screenshot failed: all capture methods failed")
+            return "", 0.0, 0
+
         try:
-            raw_img = pyautogui.screenshot()
             raw_img.save(img_path)
             self.log.info(f"Screenshot saved: {img_path}")
         except Exception as e:
