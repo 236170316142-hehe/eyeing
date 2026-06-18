@@ -1624,6 +1624,24 @@ rm -rf {shlex.quote(folder_path)}
 
             # 2.1 Check for System Idle (5 mins no activity)
             idle_time = time.time() - self._last_activity_ts
+            # On Windows, cross-check with GetLastInputInfo which works at any
+            # process integrity level — pynput hooks miss events when the monitor
+            # runs elevated (admin) and user apps run at normal integrity.
+            if os.name == 'nt':
+                try:
+                    import ctypes as _ct
+                    class _LASTINPUT(_ct.Structure):
+                        _fields_ = [('cbSize', _ct.c_uint), ('dwTime', _ct.c_uint)]
+                    _lii = _LASTINPUT()
+                    _lii.cbSize = _ct.sizeof(_LASTINPUT)
+                    _ct.windll.user32.GetLastInputInfo(_ct.byref(_lii))
+                    _sys_idle_ms = _ct.windll.kernel32.GetTickCount() - _lii.dwTime
+                    _sys_idle = _sys_idle_ms / 1000.0
+                    if _sys_idle < idle_time:
+                        self._last_activity_ts = time.time() - _sys_idle
+                        idle_time = _sys_idle
+                except Exception:
+                    pass
             if idle_time > IDLE_TIMEOUT_SECONDS:
                 self._set_idle_state(True)
 
