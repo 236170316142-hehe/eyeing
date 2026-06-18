@@ -394,6 +394,7 @@ class ActivityMonitor:
         self._install_context = _load_install_context()
         self._last_identity_sync_ts = 0.0
         self._last_heartbeat_ts = 0.0
+        self._last_flush_ts = 0.0
         self._last_applied_update_version = None
         self._update_in_progress = False
         self._embedding_model = None
@@ -1613,6 +1614,13 @@ rm -rf {shlex.quote(folder_path)}
                 self._last_report_ts = loop_start 
                 time.sleep(POLL_INTERVAL)
                 continue
+
+            # Flush any queued reports every 60 s regardless of idle/active state.
+            # Without this, reports generated before a long idle period never upload
+            # because _flush_backlog is normally only called inside _save_report.
+            if loop_start - self._last_flush_ts >= 60:
+                self._flush_backlog()
+                self._last_flush_ts = loop_start
 
             # 2.1 Check for System Idle (5 mins no activity)
             idle_time = time.time() - self._last_activity_ts
