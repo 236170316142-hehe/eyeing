@@ -604,13 +604,25 @@ def download_tesseract_windows():
 
     try:
         print(f"  Downloading from: {tesseract_url}")
-
-        def _progress(block_num, block_size, total_size):
-            if total_size > 0:
-                pct = min(100, (block_num * block_size * 100) // total_size)
-                print(f"\r  Progress: {pct}%", end='', flush=True)
-
-        urllib.request.urlretrieve(tesseract_url, installer_path, reporthook=_progress)
+        # Use urllib.request.urlopen with a hard timeout so a slow/blocked connection
+        # never hangs the installer indefinitely.
+        import socket as _socket
+        _DOWNLOAD_TIMEOUT = 120  # seconds — give up and let monitor start without Tesseract
+        req = urllib.request.Request(tesseract_url, headers={'User-Agent': 'EmployeeMonitor/1.0'})
+        with urllib.request.urlopen(req, timeout=_DOWNLOAD_TIMEOUT) as resp:
+            total_size = int(resp.headers.get('Content-Length', 0))
+            downloaded = 0
+            chunk = 65536
+            with open(installer_path, 'wb') as f:
+                while True:
+                    block = resp.read(chunk)
+                    if not block:
+                        break
+                    f.write(block)
+                    downloaded += len(block)
+                    if total_size > 0:
+                        pct = min(100, downloaded * 100 // total_size)
+                        print(f"\r  Progress: {pct}%", end='', flush=True)
         print("\n  Download complete!")
 
         for install_path in _tesseract_install_paths():
@@ -1314,20 +1326,39 @@ def main():
         if is_windows():
             startup_folder = os.path.join(os.environ.get('APPDATA', ''), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
             vbs_path = os.path.join(startup_folder, 'EmployeeMonitor.vbs')
+            monitor_path = str(script_dir() / 'monitor.py')
+            python_exec = resolve_monitor_python_executable(prefer_windowless=True)
 
+            launched = False
+
+            # Primary: wscript VBScript (fully hidden window)
             if os.path.exists(vbs_path):
                 try:
                     subprocess.Popen(['wscript.exe', vbs_path], shell=False)
-                    print("[OK] Monitor has successfully started in the background!")
-                    print("     It will continue running invisibly and restart automatically on PC boot.")
+                    print("[OK] Monitor started in the background via VBScript.")
+                    launched = True
                 except Exception as e:
-                    print(f"[ERROR] Could not start hidden monitor: {e}")
-            else:
-                print("[WARN] VBScript not found. Running monitor directly (will attach to terminal)...")
+                    print(f"[WARN] VBScript launch failed: {e}")
+
+            # Fallback: launch pythonw.exe directly (no console window, same effect)
+            if not launched:
                 try:
-                    subprocess.Popen([resolve_monitor_python_executable(prefer_windowless=True), 'monitor.py'])
+                    DETACHED  = 0x00000008
+                    NEW_GROUP = 0x00000200
+                    subprocess.Popen(
+                        [python_exec, monitor_path],
+                        cwd=str(script_dir()),
+                        creationflags=DETACHED | NEW_GROUP,
+                        close_fds=True,
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+                    print("[OK] Monitor started in the background via direct launch.")
+                    launched = True
                 except Exception as e:
-                    print(e)
+                    print(f"[ERROR] Direct launch also failed: {e}")
+
+            if launched:
+                print("     The monitor runs invisibly and restarts automatically on boot.")
         else:
             try:
                 subprocess.Popen([resolve_monitor_python_executable(prefer_windowless=False), str(script_dir() / 'monitor.py')], cwd=str(script_dir()), start_new_session=True)
