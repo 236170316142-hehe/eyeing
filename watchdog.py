@@ -28,7 +28,8 @@ def monitor_is_running() -> bool:
             result = subprocess.run(
                 ['powershell', '-NoProfile', '-Command',
                  'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation'],
-                capture_output=True, text=True, timeout=20
+                capture_output=True, text=True, timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             for line in result.stdout.splitlines():
                 if 'monitor.py' in line and my_pid not in line:
