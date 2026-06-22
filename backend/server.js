@@ -6,8 +6,6 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const https = require('https');
-const http = require('http');
 const archiver = require('archiver');
 const { spawn } = require('child_process');
 const { OAuth2Client } = require('google-auth-library');
@@ -27,57 +25,6 @@ const ADMIN_USERNAME = String(process.env.ADMIN_USERNAME || '').trim();
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
 const HAS_ADMIN_AUTH = Boolean(ADMIN_USERNAME && ADMIN_PASSWORD);
 const googleOAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
-
-// ── Tesseract installer cache ─────────────────────────────────────────────────
-// Downloaded once at startup and re-used for all ZIP requests.
-// Stored in os.tmpdir() which persists for the lifetime of the process.
-const TESSERACT_INSTALLER_URL = 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0/tesseract-ocr-w64-setup-v5.4.0.exe';
-const TESSERACT_CACHE_PATH = path.join(os.tmpdir(), 'tesseract-ocr-w64-setup.exe');
-
-let _tesseractReady = false;
-
-function _downloadFile(url, dest, redirectCount = 0) {
-  return new Promise((resolve, reject) => {
-    if (redirectCount > 5) return reject(new Error('Too many redirects'));
-    const client = url.startsWith('https') ? https : http;
-    const req = client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return _downloadFile(res.headers.location, dest, redirectCount + 1).then(resolve).catch(reject);
-      }
-      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-      const file = fs.createWriteStream(dest);
-      res.pipe(file);
-      file.on('finish', () => file.close(resolve));
-      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err); });
-    });
-    req.on('error', reject);
-    req.setTimeout(120000, () => { req.destroy(); reject(new Error('Download timeout')); });
-  });
-}
-
-async function downloadTesseractInstaller() {
-  // Already cached from this process run
-  if (_tesseractReady) return;
-  // File left over from a previous warm restart — reuse it
-  if (fs.existsSync(TESSERACT_CACHE_PATH)) {
-    const size = Math.round(fs.statSync(TESSERACT_CACHE_PATH).size / 1024 / 1024);
-    if (size > 10) { // sanity check: real installer is ~36 MB
-      _tesseractReady = true;
-      console.log(`[+] Tesseract installer already cached (${size} MB).`);
-      return;
-    }
-  }
-  try {
-    console.log('[*] Downloading Tesseract installer for bundling (~36 MB)...');
-    await _downloadFile(TESSERACT_INSTALLER_URL, TESSERACT_CACHE_PATH);
-    const size = Math.round(fs.statSync(TESSERACT_CACHE_PATH).size / 1024 / 1024);
-    _tesseractReady = true;
-    console.log(`[+] Tesseract installer cached (${size} MB) — bundled in Windows ZIPs.`);
-  } catch (err) {
-    console.warn(`[!] Could not cache Tesseract installer: ${err.message}`);
-    console.warn('    Windows ZIPs still work — monitor falls back to winget/web download.');
-  }
-}
 
 function getPublicBaseUrl(req) {
   if (PUBLIC_BACKEND_URL) {
@@ -117,7 +64,7 @@ function isGreetingOnlyMessage(message) {
   const normalized = String(message || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
 
-  return /^(hi|hello|hey|heya|hiya|helo|hii|heyy|yo|sup|howdy|greetings|good morning|good afternoon|good evening|what['']?s up|wassup|whats up)( there)?$/.test(normalized);
+  return /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening)( there)?$/.test(normalized);
 }
 
 function resolveChatTargetDate(message, requestedDate) {
@@ -281,11 +228,6 @@ app.use('/api/reports/employee', requireAdminAuth);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve OS-specific download ZIPs from backend/downloads/
-const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-app.use('/downloads', express.static(DOWNLOADS_DIR, { dotfiles: 'deny' }));
-
 app.get('/', (_req, res) => {
   res.status(200).json({
     status: 'success',
@@ -336,7 +278,7 @@ const EMPLOYEE_PACKAGE_DEFINITIONS = {
     archiveName: 'employee-monitor-windows.zip',
     includeBatchLauncher: true,
     includeUnixLauncher: false,
-    includeWindowsAutomation: false,
+    includeWindowsAutomation: true,
     includeEnterpriseTools: false
   },
   macos: {
@@ -365,16 +307,6 @@ const EMPLOYEE_PACKAGE_DEFINITIONS = {
     includeMacCommandLauncher: true,
     includeWindowsAutomation: true,
     includeEnterpriseTools: true
-  },
-  update: {
-    label: 'Update',
-    archiveName: 'employee-monitor-update.zip',
-    includeBatchLauncher: false,
-    includeUnixLauncher: false,
-    includeMacCommandLauncher: false,
-    includeWindowsAutomation: false,
-    includeEnterpriseTools: false,
-    updateOnly: true
   }
 };
 
@@ -385,7 +317,6 @@ function normalizeEmployeePackagePlatform(value) {
   if (['mac', 'macos', 'darwin', 'osx'].includes(normalized)) return 'macos';
   if (['linux', 'ubuntu', 'debian'].includes(normalized)) return 'linux';
   if (['enterprise', 'multi-os', 'multios', 'multi_pc', 'multipc'].includes(normalized)) return 'enterprise';
-  if (['update', 'patch'].includes(normalized)) return 'update';
 
   if (EMPLOYEE_PACKAGE_DEFINITIONS[normalized]) return normalized;
 
@@ -444,185 +375,117 @@ function addDirectoryRecursive(archive, sourceDir, targetPrefix) {
 
 function buildUnixLauncherScript() {
   return `#!/usr/bin/env bash
-# Employee Monitor — Linux silent installer
-# Run once: bash install.sh   (everything else happens automatically)
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ── Resolve backend URL ──────────────────────────────────────────────────
-BACKEND_URL="https://eyeing.onrender.com"
-if [ -f "$SCRIPT_DIR/eyeing/backend_url.txt" ]; then
-  BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/eyeing/backend_url.txt")
+echo "============================================"
+echo "  Employee Monitor Installer (Unix)"
+echo "============================================"
+
+if [ -x "$SCRIPT_DIR/tesseract/bin/tesseract" ]; then
+  export TESSERACT_CMD="$SCRIPT_DIR/tesseract/bin/tesseract"
+elif [ -x "$SCRIPT_DIR/tesseract/tesseract" ]; then
+  export TESSERACT_CMD="$SCRIPT_DIR/tesseract/tesseract"
 fi
-DEVICE_ID=$(hostname -s 2>/dev/null || echo "linux-device")
-INSTALL_ID="lin-$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
-LOG="$SCRIPT_DIR/eyeing/setup_log.txt"
 
-# ── Open setup page in browser immediately ───────────────────────────────
-SETUP_URL="$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID"
-xdg-open "$SETUP_URL" 2>/dev/null || \
-  python3 -m webbrowser "$SETUP_URL" 2>/dev/null || \
-  python  -m webbrowser "$SETUP_URL" 2>/dev/null || true
+install_python_and_tesseract() {
+  local python_found=0
+  local tesseract_found=0
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor Linux setup started" > "$LOG"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend: $BACKEND_URL" >> "$LOG"
-echo "" >> "$LOG"
-
-# ── Run the full installation in the background ──────────────────────────
-(
-
-  # ── Step 1: Python ──────────────────────────────────────────────────────
-  PYTHON_BIN=""
-  for cmd in python3 python3.12 python3.11 python3.10 python3.9 python; do
-    command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
-  done
-  if [ -z "$PYTHON_BIN" ]; then
-    echo "[*] Python not found — installing..." >> "$LOG"
-    { command -v apt-get && sudo apt-get install -y -qq python3 python3-pip python3-venv; } >> "$LOG" 2>&1 || \
-    { command -v dnf  && sudo dnf install -y -q python3 python3-pip; }  >> "$LOG" 2>&1 || \
-    { command -v yum  && sudo yum install -y -q python3 python3-pip; }  >> "$LOG" 2>&1 || \
-    { command -v pacman && sudo pacman -Sy --noconfirm python python-pip; } >> "$LOG" 2>&1 || \
-    { command -v zypper && sudo zypper --non-interactive install python3 python3-pip; } >> "$LOG" 2>&1 || \
-    { command -v apk  && sudo apk add python3 py3-pip; } >> "$LOG" 2>&1 || true
-    for cmd in python3 python; do
-      command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
-    done
+  if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+    python_found=1
   fi
-  if [ -z "$PYTHON_BIN" ]; then
-    echo "[ERROR] Python could not be installed. Install python3 manually then re-run." >> "$LOG"
-    exit 1
-  fi
-  echo "[OK] Python: $($PYTHON_BIN --version 2>&1)" >> "$LOG"
 
-  # ── Step 2: Virtual env ──────────────────────────────────────────────────
-  VENV_PY="$SCRIPT_DIR/.venv/bin/python"
-  if [ ! -x "$VENV_PY" ]; then
-    "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >> "$LOG" 2>&1 || true
+  if command -v tesseract >/dev/null 2>&1; then
+    tesseract_found=1
   fi
-  [ -x "$VENV_PY" ] && PYTHON_BIN="$VENV_PY"
 
-  # ── Step 3: Python packages ──────────────────────────────────────────────
-  echo "[*] Installing Python packages..." >> "$LOG"
-  "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
-  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || \
-    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || true
-  echo "[OK] Python packages installed" >> "$LOG"
-
-  # ── Step 4: Tesseract ────────────────────────────────────────────────────
-  if ! command -v tesseract >/dev/null 2>&1; then
-    echo "[*] Installing Tesseract..." >> "$LOG"
-    { command -v apt-get && sudo apt-get install -y -qq tesseract-ocr; } >> "$LOG" 2>&1 || \
-    { command -v dnf  && sudo dnf install -y -q tesseract; } >> "$LOG" 2>&1 || \
-    { command -v yum  && sudo yum install -y -q tesseract; } >> "$LOG" 2>&1 || \
-    { command -v pacman && sudo pacman -Sy --noconfirm tesseract tesseract-data-eng; } >> "$LOG" 2>&1 || \
-    { command -v zypper && sudo zypper --non-interactive install tesseract-ocr; } >> "$LOG" 2>&1 || \
-    { command -v apk  && sudo apk add tesseract-ocr; } >> "$LOG" 2>&1 || true
+  if [ "$python_found" -eq 1 ] && [ "$tesseract_found" -eq 1 ]; then
+    return 0
   fi
-  command -v tesseract >/dev/null 2>&1 && echo "[OK] Tesseract ready" >> "$LOG" || echo "[WARN] Tesseract unavailable — OCR disabled" >> "$LOG"
 
-  # ── Step 5: Autostart + start monitor ───────────────────────────────────
-  echo "[*] Configuring autostart..." >> "$LOG"
-  "$PYTHON_BIN" "$SCRIPT_DIR/eyeing/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
-  loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || sudo loginctl enable-linger "$(whoami)" >> "$LOG" 2>&1 || true
-  CRON_LINE="@reboot $PYTHON_BIN $SCRIPT_DIR/monitor.py >> $HOME/.employee-monitor-output.log 2>&1"
-  ( crontab -l 2>/dev/null | grep -v "monitor.py" | grep -v "employee-monitor"; echo "$CRON_LINE" ) | crontab - >> "$LOG" 2>&1 || true
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload >> "$LOG" 2>&1 || true
-    systemctl --user enable employee-monitor.service >> "$LOG" 2>&1 || true
-    systemctl --user start  employee-monitor.service >> "$LOG" 2>&1 || true
+  if [[ "$OSTYPE" == darwin* ]]; then
+    if ! command -v brew >/dev/null 2>&1; then
+      echo "Homebrew is required to auto-install Python/Tesseract on macOS."
+      echo "Install Homebrew first: https://brew.sh"
+      exit 1
+    fi
+
+    if [ "$python_found" -eq 0 ]; then
+      echo "Installing Python with Homebrew..."
+      brew install python
+    fi
+
+    if [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Tesseract with Homebrew..."
+      brew install tesseract
+    fi
+    return 0
   fi
-  chmod 700 "$SCRIPT_DIR" 2>/dev/null || true
-  echo "[DONE] Setup complete at $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
-) >> "$LOG" 2>&1 &
-disown $!
+
+  if command -v apt-get >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with apt..."
+      sudo apt-get update
+      sudo apt-get install -y python3 python3-pip python3-venv tesseract-ocr scrot xclip
+    fi
+    return 0
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with dnf..."
+      sudo dnf install -y python3 python3-pip python3-virtualenv tesseract scrot xclip
+    fi
+    return 0
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    if [ "$python_found" -eq 0 ] || [ "$tesseract_found" -eq 0 ]; then
+      echo "Installing Python and Tesseract with pacman..."
+      sudo pacman -Sy --noconfirm python python-pip tesseract scrot xclip
+    fi
+    return 0
+  fi
+
+  echo "Auto-install is not available for this Linux distribution. Install Python 3 and Tesseract manually."
+  exit 1
+}
+
+install_python_and_tesseract
+
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  PYTHON_BIN="$(command -v python)"
+fi
+
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
+  echo "Creating local virtual environment..."
+  if "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >/dev/null 2>&1; then
+    echo "Virtual environment ready."
+  else
+    echo "Could not create venv. Falling back to system Python."
+  fi
+fi
+
+if [ -x "$VENV_PY" ]; then
+  PYTHON_BIN="$VENV_PY"
+fi
+
+exec "$PYTHON_BIN" install_and_run.py --autostart
 `;
 }
 
 function buildMacCommandLauncher() {
   return `#!/usr/bin/env bash
-# Employee Monitor — macOS silent installer
-# Double-click in Finder. Browser opens immediately; everything else runs in background.
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-
-# Remove quarantine so scripts can run without Gatekeeper prompts
 xattr -dr com.apple.quarantine "$SCRIPT_DIR" >/dev/null 2>&1 || true
-chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.command "$SCRIPT_DIR"/*.py 2>/dev/null || true
-
-# ── Resolve backend URL ──────────────────────────────────────────────────
-BACKEND_URL="https://eyeing.onrender.com"
-[ -f "$SCRIPT_DIR/eyeing/backend_url.txt" ] && BACKEND_URL=$(tr -d '[:space:]' < "$SCRIPT_DIR/eyeing/backend_url.txt")
-DEVICE_ID=$(hostname -s 2>/dev/null || echo "mac-device")
-INSTALL_ID="mac-$(uuidgen 2>/dev/null | tr -d '-' | head -c 12 || date +%s)"
-LOG="$SCRIPT_DIR/eyeing/setup_log.txt"
-
-# ── Open setup page immediately ──────────────────────────────────────────
-open "$BACKEND_URL/setup.html?autoclose=1&device_id=$DEVICE_ID&install_id=$INSTALL_ID" 2>/dev/null || true
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Employee Monitor macOS setup started" > "$LOG"
-
-# ── Run full install silently in background ──────────────────────────────
-(
-  # Step 1: Homebrew (non-interactive)
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "[*] Installing Homebrew..." >> "$LOG"
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$LOG" 2>&1 || true
-    [ -f "/opt/homebrew/bin/brew" ] && eval "$(/opt/homebrew/bin/brew shellenv)"
-    [ -f "/usr/local/bin/brew"    ] && eval "$(/usr/local/bin/brew shellenv)"
-  fi
-  export HOMEBREW_NO_AUTO_UPDATE=1
-
-  # Step 2: Python
-  PYTHON_BIN=""
-  for cmd in python3 python3.12 python3.11 python3.10 python3.9; do
-    command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
-  done
-  if [ -z "$PYTHON_BIN" ] && command -v brew >/dev/null 2>&1; then
-    brew install python >> "$LOG" 2>&1 || true
-    for cmd in python3 python3.12 python3.11; do
-      command -v "$cmd" >/dev/null 2>&1 && PYTHON_BIN=$(command -v "$cmd") && break
-    done
-  fi
-  [ -z "$PYTHON_BIN" ] && echo "[ERROR] Python not found" >> "$LOG" && exit 1
-  echo "[OK] Python: $($PYTHON_BIN --version 2>&1)" >> "$LOG"
-
-  # Step 3: Virtual env
-  VENV_PY="$SCRIPT_DIR/.venv/bin/python"
-  [ ! -x "$VENV_PY" ] && "$PYTHON_BIN" -m venv "$SCRIPT_DIR/.venv" >> "$LOG" 2>&1 || true
-  [ -x "$VENV_PY" ] && PYTHON_BIN="$VENV_PY"
-
-  # Step 4: Python packages
-  echo "[*] Installing Python packages..." >> "$LOG"
-  "$PYTHON_BIN" -m pip install -q --upgrade pip >> "$LOG" 2>&1 || true
-  "$PYTHON_BIN" -m pip install -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || \
-    "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$SCRIPT_DIR/eyeing/requirements.txt" >> "$LOG" 2>&1 || true
-
-  # Step 5: Tesseract
-  if ! command -v tesseract >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
-    echo "[*] Installing Tesseract..." >> "$LOG"
-    brew install tesseract >> "$LOG" 2>&1 || true
-  fi
-  command -v tesseract >/dev/null 2>&1 && echo "[OK] Tesseract ready" >> "$LOG" || echo "[WARN] Tesseract unavailable — OCR disabled" >> "$LOG"
-
-  # Step 6: Autostart (LaunchAgent) + start monitor now
-  echo "[*] Configuring LaunchAgent autostart..." >> "$LOG"
-  "$PYTHON_BIN" "$SCRIPT_DIR/eyeing/install_and_run.py" --autostart --silent >> "$LOG" 2>&1 || true
-  PLIST="$HOME/Library/LaunchAgents/com.eyeing.monitor.plist"
-  if [ -f "$PLIST" ]; then
-    UID_NUM=$(id -u)
-    launchctl bootout "gui/$UID_NUM" "$PLIST" >> "$LOG" 2>&1 || true
-    launchctl bootstrap "gui/$UID_NUM" "$PLIST" >> "$LOG" 2>&1 || \
-      launchctl load -w "$PLIST" >> "$LOG" 2>&1 || true
-    echo "[OK] LaunchAgent loaded — monitor starts on every login" >> "$LOG"
-  fi
-  echo "[DONE] Setup complete at $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
-) >> "$LOG" 2>&1 &
-disown $!
-
-# Close this Terminal window so the user sees only the browser
-sleep 1
-osascript -e 'tell application "Terminal" to close first window' 2>/dev/null || true
+chmod +x "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/install.command" >/dev/null 2>&1 || true
+exec /bin/bash "$SCRIPT_DIR/install.sh"
 `;
 }
 
@@ -815,39 +678,47 @@ exec /bin/bash "$TARGET_DIR/install.sh"
 }
 
 function buildEmployeePackageReadme(platformLabel, origin) {
-  return `Employee Monitor — ${platformLabel}
-Backend: ${origin}
+  return `Employee Monitor ${platformLabel} package
 
-HOW TO INSTALL
-==============
-Windows  →  Double-click  install.bat
-             Your browser opens the onboarding page immediately.
-             Everything else (Python, packages, autostart) installs
-             silently in the background.
+This archive is generated live from the Render backend so it always includes the latest app files and backend URL.
 
-macOS    →  Double-click  install.command
-             Your browser opens the onboarding page immediately.
-             All installs run silently in the background.
-             If macOS blocks it: right-click → Open → Open.
+Included files:
+- monitor.py
+- install_and_run.py
+- requirements.txt
+- backend_url.txt
+- backend/public/setup.html
+- backend/public/employee-distribution.html
 
-Linux    →  Open a terminal in this folder and run:
-               bash install.sh
-             Your browser opens the onboarding page immediately.
-             All installs run silently in the background.
+Launcher:
+- Windows: deploy_automated.bat (full automated setup), with install.bat as entry point
+- macOS and Linux: install.sh (auto-detects OS and package manager)
+- macOS additional launcher: install.command
 
-WHAT INSTALLS AUTOMATICALLY
-============================
-  • Python 3 (if not already installed)
-  • All required Python packages
-  • Tesseract-OCR (if not already installed)
-  • Monitor autostart on every login / reboot
+If a bundled Tesseract directory is present in this ZIP, installer/runtime will use it first.
+Expected bundled paths inside ZIP:
+- Windows: tesseract/tesseract.exe
+- Linux/macOS: tesseract/bin/tesseract
 
-PROGRESS LOG
-============
-Installation progress is written to setup_log.txt in this folder.
-Open it any time to check status or diagnose issues.
+If bundle is missing, installer falls back to system/package-manager install.
+You can force bundle source on backend build host with env vars:
+- TESSERACT_BUNDLE_WINDOWS
+- TESSERACT_BUNDLE_LINUX
+- TESSERACT_BUNDLE_MACOS
 
-After install the monitor starts automatically — no further steps needed.
+Launch the installer from this folder, or run it from a terminal with the platform launcher.
+
+Backend URL:
+${origin}
+
+macOS Access Notes (Gatekeeper):
+1) Open the extracted package folder and double-click install.command.
+2) If Gatekeeper blocks it, open Terminal and run these commands inside the extracted folder:
+  xattr -dr com.apple.quarantine .
+  chmod +x install.sh install.command
+  ./install.sh
+
+Tip: Use the direct bootstrap download from employee-distribution.html to avoid manual unzip/chmod steps.
 `;
 }
 
@@ -870,7 +741,7 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
   }
 
   if (platformDefinition.includeBatchLauncher) {
-    files.push('install.bat', 'eyeing/setup.ps1');
+    files.push('install.bat');
   }
 
   if (platformDefinition.includeWindowsAutomation) {
@@ -894,209 +765,46 @@ function buildEmployeePackageManifest(platformDefinition, origin) {
   }, null, 2);
 }
 
-function buildWindowsVbsLauncher(origin) {
-  const backendUrl = origin || 'https://eyeing.onrender.com';
-  return `' Employee Monitor — Windows silent launcher
-' Double-click Setup.vbs to install.
-Option Explicit
-On Error Resume Next
-
-Dim ws, fso, baseDir, backendUrl, deviceId, installId, setupUrl
-Dim urlFile, f, urlLine, permDir, srcDir, extractParent, isReinstall
-Dim cleanupVbs, cv, pythonExe, localApp, pyPaths, pi
-
-Set ws  = CreateObject("WScript.Shell")
-Set fso = CreateObject("Scripting.FileSystemObject")
-
-baseDir = fso.GetParentFolderName(WScript.ScriptFullName) & "\\"
-
-backendUrl = "${backendUrl}"
-urlFile = baseDir & "eyeing\\backend_url.txt"
-If fso.FileExists(urlFile) Then
-  Set f = fso.OpenTextFile(urlFile, 1)
-  urlLine = Trim(f.ReadAll())
-  f.Close
-  If urlLine <> "" Then backendUrl = urlLine
-End If
-
-deviceId  = ws.ExpandEnvironmentStrings("%COMPUTERNAME%")
-Randomize
-installId = "win-" & CStr(Int(Rnd * 900000) + 100000)
-setupUrl  = backendUrl & "/setup.html?autoclose=1&device_id=" & deviceId & "&install_id=" & installId
-
-permDir       = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\\EmployeeMonitor"
-srcDir        = baseDir & "eyeing"
-extractParent = fso.GetParentFolderName(srcDir)
-
-isReinstall = fso.FileExists(permDir & "\\activity_data\\install_context.json") _
-           Or fso.FileExists(srcDir  & "\\activity_data\\install_context.json")
-
-If Not isReinstall Then
-  ws.Run setupUrl, 1, False
-End If
-
-' Hide extraction folder via attrib.exe (system exe, no cmd.exe needed)
-ws.Run "attrib +h +s " & Chr(34) & extractParent & Chr(34), 0, True
-
-' Copy eyeing\\ to permanent AppData location using FSO — bypasses cmd.exe entirely
-If Not fso.FolderExists(permDir) Then fso.CreateFolder permDir
-CopyFolder srcDir, permDir
-
-' Find Python — search common install locations first
-localApp = ws.ExpandEnvironmentStrings("%LOCALAPPDATA%")
-pythonExe = ""
-Dim pySearch(15)
-pySearch(0)  = localApp & "\\Programs\\Python\\Python313\\python.exe"
-pySearch(1)  = localApp & "\\Programs\\Python\\Python312\\python.exe"
-pySearch(2)  = localApp & "\\Programs\\Python\\Python311\\python.exe"
-pySearch(3)  = localApp & "\\Programs\\Python\\Python310\\python.exe"
-pySearch(4)  = localApp & "\\Programs\\Python\\Python39\\python.exe"
-pySearch(5)  = localApp & "\\Programs\\Python\\Python38\\python.exe"
-pySearch(6)  = "C:\\Python313\\python.exe"
-pySearch(7)  = "C:\\Python312\\python.exe"
-pySearch(8)  = "C:\\Python311\\python.exe"
-pySearch(9)  = "C:\\Python310\\python.exe"
-pySearch(10) = "C:\\Python39\\python.exe"
-pySearch(11) = "C:\\Python38\\python.exe"
-pySearch(12) = "C:\\Program Files\\Python313\\python.exe"
-pySearch(13) = "C:\\Program Files\\Python312\\python.exe"
-pySearch(14) = "C:\\Program Files\\Python311\\python.exe"
-pySearch(15) = "C:\\Program Files\\Python310\\python.exe"
-For pi = 0 To 15
-  If fso.FileExists(pySearch(pi)) Then
-    pythonExe = pySearch(pi)
-    Exit For
-  End If
-Next
-
-' Python not found — silently download and install it via PowerShell
-If pythonExe = "" Then
-  Dim pyInstaller
-  pyInstaller = ws.ExpandEnvironmentStrings("%TEMP%") & "\\python_setup.exe"
-  ws.Run "powershell -NoProfile -ExecutionPolicy Bypass -Command ""Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe' -OutFile '" & pyInstaller & "' -UseBasicParsing""", 0, True
-  If fso.FileExists(pyInstaller) Then
-    ws.Run Chr(34) & pyInstaller & Chr(34) & " /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1", 0, True
-    ' Search again after installation
-    For pi = 0 To 15
-      If fso.FileExists(pySearch(pi)) Then
-        pythonExe = pySearch(pi)
-        Exit For
-      End If
-    Next
-  End If
-End If
-If pythonExe = "" Then pythonExe = "python"
-
-' Create a virtual environment so packages install without admin rights.
-' venv includes pip by default — no system Python pip needed.
-Dim venvDir, venvPython
-venvDir   = permDir & "\\venv"
-venvPython = venvDir & "\\Scripts\\python.exe"
-
-If Not fso.FileExists(venvPython) Then
-  ws.Run Chr(34) & pythonExe & Chr(34) & " -m venv " & Chr(34) & venvDir & Chr(34), 0, True
-End If
-
-' If venv was created successfully, use it; otherwise fall back to system Python
-If fso.FileExists(venvPython) Then
-  pythonExe = venvPython
-End If
-
-' Run Python installer synchronously — wscript.exe (GUI) stays alive until Python exits
-' so Python is never killed by console destruction
-ws.Environment("Process")("SKIP_SETUP_OPEN") = "1"
-ws.Run Chr(34) & pythonExe & Chr(34) & " " & Chr(34) & permDir & "\\install_and_run.py" & Chr(34) & " --autostart --silent", 0, True
-
-' Schedule extraction-folder deletion via a second wscript.exe (GUI process,
-' no console — not killed when parent exits) 30 s from now
-cleanupVbs = ws.ExpandEnvironmentStrings("%TEMP%") & "\\em_cleanup.vbs"
-Set cv = fso.CreateTextFile(cleanupVbs, True)
-cv.WriteLine "WScript.Sleep 30000"
-cv.WriteLine "On Error Resume Next"
-cv.WriteLine "Set ws2  = CreateObject(""WScript.Shell"")"
-cv.WriteLine "Set fso2 = CreateObject(""Scripting.FileSystemObject"")"
-cv.WriteLine "ws2.Run ""attrib -h -s -r "" & Chr(34) & """ & extractParent & """ & Chr(34) & "" /s /d"", 0, True"
-cv.WriteLine "If fso2.FolderExists(""" & extractParent & """) Then fso2.DeleteFolder """ & extractParent & """, True"
-cv.Close
-ws.Run "wscript.exe " & Chr(34) & cleanupVbs & Chr(34), 0, False
-
-' Recursive FSO folder copy — works with any path regardless of special characters
-Sub CopyFolder(src, dst)
-  Dim oFile, oSub
-  If Not fso.FolderExists(dst) Then fso.CreateFolder dst
-  For Each oFile In fso.GetFolder(src).Files
-    fso.CopyFile oFile.Path, dst & "\\" & oFile.Name, True
-  Next
-  For Each oSub In fso.GetFolder(src).SubFolders
-    CopyFolder oSub.Path, dst & "\\" & oSub.Name
-  Next
-End Sub
-`;
-}
-
 function addEmployeePackageFiles(archive, platformDefinition, origin, platformKey) {
   const rootFiles = [
     'monitor.py',
-    'watchdog.py',
     'install_and_run.py',
     'requirements.txt',
+    'README.md',
+    'DEPLOYMENT_GUIDE.md',
+    'QUICK_START.py'
   ];
 
-  // update-only packages: Python core files only — no web assets, no launchers.
-  // Files are named without the eyeing/ prefix so they land in BASE_DIR regardless
-  // of whether the machine uses an old root install or the new eyeing/ subfolder.
-  if (platformDefinition.updateOnly) {
-    const updateFiles = [
-      'monitor.py',
-      'watchdog.py',
-      'install_and_run.py',
-      'requirements.txt',
-      'verify_tesseract.py',
-      'verify_autostart.py',
-    ];
-    updateFiles.forEach((relativePath) => {
-      const absPath = path.join(ROOT_DIR, relativePath);
-      if (fs.existsSync(absPath)) {
-        archive.file(absPath, { name: relativePath });
-      }
-    });
-    archive.append(new Date().toISOString() + '\n', { name: 'last_updated.txt' });
-    return;
-  }
-
-  // All support files go into eyeing/ subfolder — only the launcher and README.txt are at root.
   rootFiles.forEach((relativePath) => {
     const absPath = path.join(ROOT_DIR, relativePath);
     if (fs.existsSync(absPath)) {
-      archive.file(absPath, { name: 'eyeing/' + relativePath });
+      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
     }
   });
 
   if (platformDefinition.includeBatchLauncher) {
     const installBat = path.join(ROOT_DIR, 'install.bat');
     if (fs.existsSync(installBat)) {
-      archive.file(installBat, { name: 'install.bat' });  // at root — employee double-clicks this
-    }
-
-    const setupPs1 = path.join(ROOT_DIR, 'eyeing', 'setup.ps1');
-    if (fs.existsSync(setupPs1)) {
-      archive.file(setupPs1, { name: 'eyeing/setup.ps1' });
+      archive.file(installBat, { name: 'install.bat' });
     }
   }
 
   if (platformDefinition.includeWindowsAutomation) {
-    ['verify_tesseract.py', 'verify_autostart.py'].forEach((relativePath) => {
+    [
+      'deploy_automated.bat',
+      'verify_tesseract.py',
+      'verify_autostart.py',
+      'cleanup.bat',
+      'cleanup.ps1'
+    ].forEach((relativePath) => {
       const absPath = path.join(ROOT_DIR, relativePath);
       if (fs.existsSync(absPath)) {
-        archive.file(absPath, { name: 'eyeing/' + relativePath });
+        archive.file(absPath, { name: relativePath });
       }
     });
   }
 
   if (platformDefinition.includeEnterpriseTools) {
-    // deploy_automated.bat is only for IT admins in enterprise packages
-    const depBat = path.join(ROOT_DIR, 'deploy_automated.bat');
-    if (fs.existsSync(depBat)) archive.file(depBat, { name: 'deploy_automated.bat' });
     archive.append(buildEnterpriseBatchLauncher(origin), { name: 'install_enterprise.bat' });
 
     [
@@ -1119,12 +827,17 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     addDirectoryRecursive(archive, tesseractDir, 'tesseract');
   }
 
-  // Bundle the Tesseract installer for Windows so employees don't need internet access
-  // during setup. install_and_run.py looks for 'tesseract-ocr-w64-setup.exe' in script_dir().
-  if ((platformKey === 'windows' || platformKey === 'enterprise') &&
-      _tesseractReady && fs.existsSync(TESSERACT_CACHE_PATH)) {
-    archive.file(TESSERACT_CACHE_PATH, { name: 'eyeing/tesseract-ocr-w64-setup.exe' });
-  }
+  const webAssets = [
+    'backend/public/setup.html',
+    'backend/public/employee-distribution.html'
+  ];
+
+  webAssets.forEach((relativePath) => {
+    const absPath = path.join(ROOT_DIR, relativePath);
+    if (fs.existsSync(absPath)) {
+      archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
+    }
+  });
 
   if (platformDefinition.includeUnixLauncher) {
     archive.append(buildUnixLauncherScript(), { name: 'install.sh', mode: 0o755 });
@@ -1138,8 +851,8 @@ function addEmployeePackageFiles(archive, platformDefinition, origin, platformKe
     ? buildEnterpriseReadme(origin)
     : buildEmployeePackageReadme(platformDefinition.label, origin);
   archive.append(readme, { name: 'README.txt' });
-  archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'eyeing/manifest.json' });
-  archive.append(`${origin}\n`, { name: 'eyeing/backend_url.txt' });
+  archive.append(buildEmployeePackageManifest(platformDefinition, origin), { name: 'manifest.json' });
+  archive.append(`${origin}\n`, { name: 'backend_url.txt' });
 }
 
 function streamEmployeePackage(req, res, platform) {
@@ -1242,44 +955,20 @@ function buildDeterministicDailySummary({ companyId, userId, designation, report
   const firstMoment = sortedReports[0]?.moment || null;
   const lastMoment = sortedReports[sortedReports.length - 1]?.moment || null;
 
-  // Compute work blocks: gap > 30 min between consecutive reports = break
-  const BREAK_GAP_MIN = 30;
-  const workBlocks = [];
-  let blkStart = null, blkEnd = null, blkApps = [];
-  for (const { report, moment } of sortedReports) {
-    if (!blkStart) {
-      blkStart = blkEnd = moment;
-      blkApps = [String(report.active_app || '').trim()];
-      continue;
-    }
-    const gapMin = (moment - blkEnd) / 60000;
-    if (gapMin > BREAK_GAP_MIN) {
-      workBlocks.push({ start: blkStart, end: blkEnd, apps: blkApps });
-      blkStart = blkEnd = moment;
-      blkApps = [String(report.active_app || '').trim()];
-    } else {
-      blkEnd = moment;
-      const app = String(report.active_app || '').trim();
-      if (app && !blkApps.includes(app)) blkApps.push(app);
-    }
-  }
-  if (blkStart) workBlocks.push({ start: blkStart, end: blkEnd, apps: blkApps });
-
-  const netWorkMin = workBlocks.reduce((s, b) => s + Math.round((b.end - b.start) / 60000), 0);
-  const netWorkStr = `${Math.floor(netWorkMin / 60)}h ${netWorkMin % 60}m`;
-
-  const sessionLines = workBlocks.map(b => {
-    const durMin = Math.round((b.end - b.start) / 60000);
-    const start = formatSummaryTime(b.start, timezoneOffsetMinutes);
-    const end = formatSummaryTime(b.end, timezoneOffsetMinutes);
-    const topApps = [...new Set(b.apps.filter(Boolean))].slice(0, 3).join(', ') || 'Unknown';
-    return `- ${start} → ${end} (${Math.floor(durMin / 60)}h ${durMin % 60}m) — ${topApps}`;
+  const sessionLines = sortedReports.slice(0, 4).map(({ report, moment }) => {
+    const start = formatSummaryTime(moment, timezoneOffsetMinutes);
+    const duration = formatSummaryDuration(report.time_active_sec);
+    const endMoment = moment ? new Date(moment.getTime() + Math.max(0, Number(report.time_active_sec || 0)) * 1000) : null;
+    const end = formatSummaryTime(endMoment, timezoneOffsetMinutes);
+    const appName = String(report.active_app || 'Unknown').trim() || 'Unknown';
+    const title = String(report.window_title || 'Untitled Window').trim() || 'Untitled Window';
+    return `- ${start} - ${end}: ${appName} - ${title} (${duration})`;
   });
 
-  const noMoreSessionsLine = workBlocks.length === 0 ? '- No work sessions were recorded.' : '';
+  const noMoreSessionsLine = sortedReports.length > 4 ? '' : '- No other significant sessions were recorded.';
 
   const opening = activeMinutes > 0
-    ? `Net work time (excluding breaks >30 min): **${netWorkStr}** across ${workBlocks.length} session(s). Keyboard/mouse active: ${activeMinutes.toFixed(1)} min. Total reports: ${sortedReports.length}.`
+    ? `The user had ${activeMinutes.toFixed(1)} minutes of active time and ${idleMinutes.toFixed(1)} minutes idle across ${sortedReports.length} report(s) on ${targetDate}.`
     : `No active work time was recorded for ${targetDate}.`;
 
   const workSummary = unknownReports > 0
@@ -1455,11 +1144,6 @@ app.get('/api/employee/linux.zip', (req, res) => {
 
 app.get('/api/employee/enterprise.zip', (req, res) => {
   streamEmployeePackage(req, res, 'enterprise');
-});
-
-// Platform-agnostic update package: Python scripts + web assets only (no Tesseract installer)
-app.get('/api/employee/update.zip', (req, res) => {
-  streamEmployeePackage(req, res, 'update');
 });
 
 app.get('/api/employee/bootstrap.ps1', (req, res) => {
@@ -1748,37 +1432,18 @@ app.post('/api/tracker/heartbeat', async (req, res) => {
     const queuedCount = Number.isFinite(queuedRaw) && queuedRaw >= 0 ? Math.floor(queuedRaw) : 0;
     const identityResolved = Boolean(req.body.identity_resolved) || !shouldResolveIdentity(companyId, userId);
 
-    // Detect reinstall after decommission: same user but different install_id means a fresh
-    // install happened after the monitor was decommissioned. Reset the flag so the monitor runs.
-    const existingStatus = await TrackingStatus.findOne(
-      { company_id: companyId, user_id: userId },
-      'is_decommissioned last_install_id'
-    ).lean();
-    const isReinstallAfterDecommission = existingStatus &&
-      existingStatus.is_decommissioned &&
-      existingStatus.last_install_id &&
-      existingStatus.last_install_id !== installId;
-
-    const heartbeatSet = {
-      last_seen_at: new Date(),
-      last_monitor_heartbeat_at: new Date(),
-      identity_resolved: identityResolved,
-      queued_local_report_count: queuedCount,
-      last_device_id: deviceId,
-      last_install_id: installId,
-      last_updated_by: 'monitor-heartbeat'
-    };
-    if (isReinstallAfterDecommission) {
-      heartbeatSet.is_decommissioned = false;
-      heartbeatSet.is_tracking_active = true;
-      heartbeatSet.decommission_requested_at = null;
-      console.log(`[Heartbeat] Reinstall detected for ${userId}@${companyId} (${existingStatus.last_install_id} → ${installId}) — decommission cleared.`);
-    }
-
     await TrackingStatus.findOneAndUpdate(
       { company_id: companyId, user_id: userId },
       {
-        $set: heartbeatSet,
+        $set: {
+          last_seen_at: new Date(),
+          last_monitor_heartbeat_at: new Date(),
+          identity_resolved: identityResolved,
+          queued_local_report_count: queuedCount,
+          last_device_id: deviceId,
+          last_install_id: installId,
+          last_updated_by: 'monitor-heartbeat'
+        },
         $setOnInsert: {
           is_tracking_active: true,
           is_decommissioned: false,
@@ -1989,17 +1654,12 @@ app.get('/api/tracking-status', async (req, res) => {
       { new: true, upsert: true }
     );
 
-    const pendingUpdate = status.pending_update;
-    const updateAvailable = Boolean(pendingUpdate && pendingUpdate.version && !pendingUpdate.confirmed_at);
     res.json({
       is_tracking_active: status.is_tracking_active,
       is_decommissioned: status.is_decommissioned || false,
       report_interval: status.report_interval || 120,
       company_id: status.company_id,
-      user_id: status.user_id,
-      update_available: updateAvailable,
-      update_version: updateAvailable ? (pendingUpdate.version || null) : null,
-      update_url: updateAvailable ? `${getPublicBaseUrl(req)}/api/employee/update.zip` : null,
+      user_id: status.user_id
     });
   } catch (error) {
     console.error('[-] Error checking tracking status:', error);
@@ -2034,7 +1694,7 @@ app.get('/api/admin/trackers', async (req, res) => {
   try {
     // Show trackers from status collection and also fallback users discovered from reports.
     const trackers = await withTimeout(
-      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt last_seen_at last_report_received_at last_monitor_heartbeat_at identity_resolved queued_local_report_count last_device_id last_install_id uninstall_requested_at decommission_requested_at last_updated_by pending_update')
+      TrackingStatus.find({}, 'company_id user_id is_tracking_active is_decommissioned report_interval updatedAt last_seen_at last_report_received_at last_monitor_heartbeat_at identity_resolved queued_local_report_count last_device_id last_install_id uninstall_requested_at decommission_requested_at last_updated_by')
         .sort({ company_id: 1, user_id: 1 })
         .lean(),
       8000,
@@ -2385,11 +2045,10 @@ app.post('/api/admin/update-interval', async (req, res) => {
   }
 });
 
-// 9. Admin Performance Chatbot
+// 9. Admin Performance Chatbot (NVIDIA RAG)
 app.post('/api/admin/chat', async (req, res) => {
   try {
-    const { message, company_id, user_id, date, timezoneOffsetMinutes: tzRaw } = req.body;
-    const tzOffset = Number(tzRaw ?? 0);
+    const { message, company_id, user_id, date } = req.body;
     const NV_KEY = process.env.LLM_API_KEY || process.env.NVIDIA_API_KEY;
 
     if (!NV_KEY || NV_KEY.includes('YOUR-KEY-HERE')) {
@@ -2398,26 +2057,23 @@ app.post('/api/admin/chat', async (req, res) => {
 
     if (isGreetingOnlyMessage(message)) {
       return res.json({
-        answer: 'Hello! Ask me about a specific user\'s activity — for example: "How many hours did this user work today?" or "What apps were used most yesterday?"'
+        answer: 'Hello. Ask me about a user or company performance, and I can summarize today, yesterday, or another specific date.'
       });
     }
 
     const targetDate = resolveChatTargetDate(message, date);
 
-    // ── Build accurate context ──────────────────────────────────────────────
-    let context = '';
-
+    // 1. Fetch performance context
+    let context = "";
     if (user_id && company_id) {
       const designation = await getUserDesignation(company_id, user_id);
       const reportFilter = { company_id, user_id };
+      let reports = [];
+      let daySummary = '';
 
       if (targetDate) {
-        // Use the CORRECT timezone-aware day bounds (same logic as the report viewer)
-        const dayBounds = buildDayBounds(targetDate, tzOffset);
-
-        // Fetch ALL reports for the day — do NOT deduplicate before aggregating
-        // (dedup removes legitimate reports and produces wildly wrong totals)
-        const allReports = await Report.aggregate([
+        const dayBounds = buildDayBounds(targetDate);
+        reports = dedupeReportsBySignature(await Report.aggregate([
           { $match: reportFilter },
           {
             $addFields: {
@@ -2431,245 +2087,121 @@ app.post('/api/admin/chat', async (req, res) => {
           },
           { $match: { eventAt: { $gte: dayBounds.start, $lte: dayBounds.end } } },
           { $sort: { eventAt: 1, createdAt: 1 } }
-        ]);
+        ]));
 
-        // Deduplicate only for display / sample (NOT for metric computation)
-        const uniqueReports = dedupeReportsBySignature(allReports);
+        if (reports.length) {
+          const totalActive = reports.reduce((sum, report) => sum + Number(report.time_active_sec || 0), 0);
+          const totalIdle = reports.reduce((sum, report) => sum + Number(report.time_idle_sec || 0), 0);
+          const totalKeys = reports.reduce((sum, report) => sum + Number(report.keyboard_key_presses || 0), 0);
+          const totalClicks = reports.reduce((sum, report) => sum + Number(report.mouse_clicks || 0), 0);
+          const appCounts = reports.reduce((acc, report) => {
+            const app = String(report.active_app || '').trim() || 'Unknown';
+            acc[app] = (acc[app] || 0) + 1;
+            return acc;
+          }, {});
+          const top3Apps = Object.entries(appCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([app]) => app).join(', ');
 
-        if (uniqueReports.length === 0) {
-          context = `FOCUS USER: ${user_id} (@ ${company_id})
-DESIGNATION: ${designation || 'Not specified'}
-DATE: ${targetDate}
-No activity logs found for this date.`;
+          daySummary = `
+      TARGET DATE: ${targetDate}
+      DAILY SUMMARY:
+      - Active: ${Math.round(totalActive / 60)}m, Idle: ${Math.round(totalIdle / 60)}m
+      - Total Inputs: ${totalKeys} keys, ${totalClicks} clicks
+      - Top Apps: ${top3Apps || 'N/A'}
+      
+      DAILY ACTIVITY SAMPLE:
+      ${reports.map(report => `- ${report.timestamp}: ${report.active_app} (${report.window_title})`).join('\n')}`;
         } else {
-          // ── Accurate metrics from ALL (non-deduped) reports ──────────────
-          const totalActiveSec = allReports.reduce((s, r) => s + Number(r.time_active_sec  || 0), 0);
-          const totalIdleSec   = allReports.reduce((s, r) => s + Number(r.time_idle_sec    || 0), 0);
-          const totalKeys      = allReports.reduce((s, r) => s + Number(r.keyboard_key_presses || 0), 0);
-          const totalClicks    = allReports.reduce((s, r) => s + Number(r.mouse_clicks     || 0), 0);
-
-          const fmtSec = (sec) => `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-
-          // Convert a UTC Date to a local-time HH:MM string using tzOffset
-          // tzOffset = getTimezoneOffset() from browser (negative for UTC+ zones)
-          // localMs = utcMs - tzOffset*60000
-          const toLocalHHMM = (ts) => {
-            if (!ts) return 'N/A';
-            const localMs = new Date(ts).getTime() - tzOffset * 60000;
-            const d = new Date(localMs);
-            const hh = String(d.getUTCHours()).padStart(2, '0');
-            const mm = String(d.getUTCMinutes()).padStart(2, '0');
-            return `${hh}:${mm}`;
-          };
-
-          // Convert UTC timestamp to local hour (for hourly bucketing)
-          const toLocalHour = (ts) => {
-            const localMs = new Date(ts).getTime() - tzOffset * 60000;
-            return new Date(localMs).getUTCHours();
-          };
-
-          // ── Work span: first → last activity in LOCAL time ───────────────
-          const firstTs = uniqueReports[0].eventAt || uniqueReports[0].timestamp;
-          const lastTs  = uniqueReports[uniqueReports.length - 1].eventAt || uniqueReports[uniqueReports.length - 1].timestamp;
-          const spanMin = (firstTs && lastTs)
-            ? Math.round((new Date(lastTs) - new Date(firstTs)) / 60000)
-            : null;
-          const spanStr = spanMin !== null
-            ? `${Math.floor(spanMin / 60)}h ${spanMin % 60}m  (${toLocalHHMM(firstTs)} → ${toLocalHHMM(lastTs)} local time)`
-            : 'N/A';
-
-          // ── Net work sessions: gap > 30 min between reports = break ─────
-          // This is the most accurate answer to "how many hours did they work"
-          const BREAK_GAP_MIN = 30;
-          const workBlocks = [];
-          let blkStart = null, blkEnd = null;
-          for (const r of uniqueReports) {
-            const ts = new Date(r.eventAt || r.timestamp);
-            if (!blkStart) { blkStart = blkEnd = ts; continue; }
-            const gapMin = (ts - blkEnd) / 60000;
-            if (gapMin > BREAK_GAP_MIN) {
-              workBlocks.push({ start: blkStart, end: blkEnd });
-              blkStart = blkEnd = ts;
-            } else {
-              blkEnd = ts;
-            }
-          }
-          if (blkStart) workBlocks.push({ start: blkStart, end: blkEnd });
-
-          const netWorkMin = workBlocks.reduce((s, b) => {
-            return s + Math.round((b.end - b.start) / 60000);
-          }, 0);
-          const netWorkStr = `${Math.floor(netWorkMin / 60)}h ${netWorkMin % 60}m`;
-
-          const sessionLines = workBlocks.map(b => {
-            const durMin = Math.round((b.end - b.start) / 60000);
-            return `  ${toLocalHHMM(b.start)} → ${toLocalHHMM(b.end)}  (${Math.floor(durMin/60)}h ${durMin%60}m)`;
-          }).join('\n');
-
-          // ── Hourly breakdown in LOCAL time ───────────────────────────────
-          const hourBuckets = {};
-          for (const r of allReports) {
-            const ts = r.eventAt;
-            if (ts) {
-              const h = toLocalHour(ts);
-              if (!hourBuckets[h]) hourBuckets[h] = { reports: 0, activeSec: 0 };
-              hourBuckets[h].reports++;
-              hourBuckets[h].activeSec += Number(r.time_active_sec || 0);
-            }
-          }
-          const hourlyLines = Object.entries(hourBuckets)
-            .sort((a, b) => Number(a[0]) - Number(b[0]))
-            .map(([h, d]) => `  ${String(h).padStart(2,'0')}:00 — ${d.reports} reports, ${Math.round(d.activeSec/60)}m keyboard/mouse active`)
-            .join('\n');
-
-          // ── Top apps by report count (not just input seconds) ────────────
-          const appCounts = {};
-          const appSecs = {};
-          for (const r of allReports) {
-            const app = String(r.active_app || '').trim() || 'Unknown';
-            appCounts[app] = (appCounts[app] || 0) + 1;
-            appSecs[app]   = (appSecs[app]   || 0) + Number(r.time_active_sec || 0);
-          }
-          const topApps = Object.entries(appCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 6)
-            .map(([app, cnt]) => `  - ${app}: ${cnt} windows (${Math.round((appSecs[app]||0)/60)}m input)`)
-            .join('\n');
-
-          // ── Recent sample ─────────────────────────────────────────────────
-          const sample = uniqueReports.slice(-8)
-            .map(r => `  ${toLocalHHMM(r.eventAt||r.timestamp)} | ${r.active_app || ''} | ${String(r.window_title||'').slice(0,55)}`)
-            .join('\n');
-
-          context = `FOCUS USER: ${user_id} (@ ${company_id})
-DESIGNATION: ${designation || 'Not specified'}
-DATE: ${targetDate} | Reports: ${allReports.length} total, ${uniqueReports.length} unique | Work sessions: ${workBlocks.length}
-
-━━ HOW TO READ THIS DATA ━━
-• NET WORK TIME = sum of all work sessions (gap >30 min between reports = counted as a break). THIS is the answer to "how many hours did they work".
-• KEYBOARD/MOUSE ACTIVE TIME = only the seconds the user was pressing keys or clicking (subset of work time; reading/thinking counts as idle input but not a break).
-• TOTAL SESSION SPAN = first activity to last activity (includes all gaps).
-
-━━ WORK SESSIONS (local time, gaps >30 min excluded) ━━
-Net work time : ${netWorkStr}
-${sessionLines}
-
-━━ INPUT ENGAGEMENT ━━
-Keyboard/mouse active : ${fmtSec(totalActiveSec)}  out of ${netWorkStr} net work time
-Keyboard presses      : ${totalKeys}
-Mouse clicks          : ${totalClicks}
-
-━━ FULL SESSION SPAN ━━
-${spanStr}
-
-━━ HOURLY BREAKDOWN (local time) ━━
-${hourlyLines}
-
-━━ TOP APPS ━━
-${topApps}
-
-━━ RECENT ACTIVITY SAMPLE ━━
-${sample}`;
+          daySummary = `
+      TARGET DATE: ${targetDate}
+      DAILY ACTIVITY SAMPLE:
+      No activity logs were found for this date.`;
         }
-      } else {
-        // No specific date — lifetime summary
+      }
+
+      if (!daySummary) {
+        // User-specific aggregation (Lifetime)
         const stats = await Report.aggregate([
           { $match: reportFilter },
           { $group: {
               _id: null,
-              total_active: { $sum: '$time_active_sec' },
-              total_idle:   { $sum: '$time_idle_sec' },
-              total_keys:   { $sum: '$keyboard_key_presses' },
-              total_clicks: { $sum: '$mouse_clicks' },
-              count:        { $sum: 1 }
+              total_active: { $sum: "$time_active_sec" },
+              total_idle: { $sum: "$time_idle_sec" },
+              total_keys: { $sum: "$keyboard_key_presses" },
+              total_clicks: { $sum: "$mouse_clicks" },
+              top_apps: { $push: "$active_app" }
           }}
         ]);
-        const lt = stats[0] || {};
-        const appSecs = {};
-        const appRows = await Report.aggregate([
-          { $match: reportFilter },
-          { $group: { _id: '$active_app', sec: { $sum: '$time_active_sec' } } },
-          { $sort: { sec: -1 } },
-          { $limit: 5 }
-        ]);
-        const topApps = appRows.map(r => `  - ${r._id || 'Unknown'}: ${Math.round(r.sec/60)}m`).join('\n');
 
-        context = `FOCUS USER: ${user_id} (@ ${company_id})
-DESIGNATION: ${designation || 'Not specified'}
-PERIOD: All time (${lt.count || 0} total reports)
+        const lifetime = stats[0] || {};
+        const logs = dedupeReportsBySignature(await Report.find(reportFilter).sort({ timestamp: -1 }).limit(20));
+        const appCounts = (lifetime.top_apps || []).reduce((acc, a) => { acc[a] = (acc[a] || 0) + 1; return acc; }, {});
+        const top3Apps = Object.entries(appCounts).sort((a,b) => b[1] - a[1]).slice(0,3).map(x => x[0]).join(', ');
 
-── LIFETIME TOTALS ──
-Active time  : ${Math.floor((lt.total_active||0)/3600)}h ${Math.floor(((lt.total_active||0)%3600)/60)}m
-Idle time    : ${Math.floor((lt.total_idle||0)/3600)}h ${Math.floor(((lt.total_idle||0)%3600)/60)}m
-Keyboard     : ${lt.total_keys || 0} key presses
-Mouse clicks : ${lt.total_clicks || 0}
-
-── TOP APPS (all time) ──
-${topApps || 'N/A'}`;
+        daySummary = `
+      LIFETIME SUMMARY:
+      - Active: ${Math.round((lifetime.total_active || 0)/60)}m, Idle: ${Math.round((lifetime.total_idle || 0)/60)}m
+      - Total Inputs: ${lifetime.total_keys || 0} keys, ${lifetime.total_clicks || 0} clicks
+      - Top Apps: ${top3Apps || "N/A"}
+      
+      RECENT ACTIVITY SAMPLE:
+      ${logs.map(l => `- ${l.timestamp}: ${l.active_app} (${l.window_title})`).join('\n')}`;
       }
+
+      context = `FOCUS USER: ${user_id} (@ ${company_id})
+      DESIGNATION: ${designation || 'Not specified'}${daySummary}`;
     } else {
-      // Global / company-wide summary
-      const rows = await Report.aggregate([
+      // Global Company Aggregation
+      const stats = await Report.aggregate([
         { $group: {
-            _id: '$user_id',
-            reports:     { $sum: 1 },
-            active_sec:  { $sum: '$time_active_sec' },
-            total_keys:  { $sum: '$keyboard_key_presses' },
-            total_clicks:{ $sum: '$mouse_clicks' }
+            _id: "$user_id",
+            total_reports: { $sum: 1 },
+            active: { $sum: "$time_active_sec" }
         }},
-        { $sort: { active_sec: -1 } },
+        { $sort: { active: -1 } },
         { $limit: 10 }
       ]);
 
       context = `GLOBAL COMPANY ANALYSIS (All Users):
-${rows.map(r =>
-  `  - ${r._id}: ${r.reports} reports | ${Math.floor(r.active_sec/3600)}h ${Math.floor((r.active_sec%3600)/60)}m active | ${r.total_keys} keys | ${r.total_clicks} clicks`
-).join('\n')}`;
+      Current Top Contributors (by active time):
+      ${stats.map(s => `- User ${s._id}: ${s.total_reports} reports, ${Math.round(s.active/60)}m active`).join('\n')}`;
     }
 
-    // ── Query LLM ──────────────────────────────────────────────────────────
-    const llmBody = {
-      model: 'meta/llama-3.1-70b-instruct',
+    // 2. Query NVIDIA LLM
+    const body = {
+      model: "meta/llama-3.1-70b-instruct",
       messages: [
-        {
-          role: 'system',
-          content: `You are a precise employee performance analyst.
-Rules:
-1. Answer ONLY from the CONTEXT DATA below — never invent numbers.
-2. Use the COMPUTED TOTALS directly; do not re-calculate or estimate.
-3. When asked "how many hours did they work", the answer is NET WORK TIME from the WORK SESSIONS section. Do NOT use Work Span (it includes break gaps). Do NOT use Keyboard/Mouse active time (that is only input seconds, not hours worked).
-4. Format answers with bold headers and bullet points.
-5. Keep answers concise and factual.
-6. If someone greets you (hi, heya, hello, hey, etc.) just respond warmly and ask what employee/date they'd like to check — do not output employee data.
-
-CONTEXT DATA:
-${context}`
+        { 
+          role: "system", 
+          content: `You are the Lead Performance Analyst. 
+          Use the provided context to answer questions. 
+          - If the context is GLOBAL, analyze company-wide patterns.
+          - If the context is for a FOCUS USER, be specific about their strengths/weaknesses and compare them to the user's designation.
+          Always use Markdown headers, bolding, and lists for a professional look.
+          
+          CONTEXT DATA:
+          ${context}`
         },
-        { role: 'user', content: message }
+        { role: "user", content: message }
       ],
-      temperature: 0.2,
-      max_tokens: 768
+      temperature: 0.5,
+      max_tokens: 1024
     };
 
-    const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
+    const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${NV_KEY}`,
-        'Content-Type': 'application/json'
+        "Authorization": `Bearer ${NV_KEY}`,
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify(llmBody)
+      body: JSON.stringify(body)
     });
 
     const data = await response.json();
-    if (!data.choices?.[0]?.message?.content) {
-      console.error('LLM bad response:', JSON.stringify(data).slice(0, 400));
-      return res.status(502).json({ error: 'LLM returned an unexpected response.' });
-    }
     res.json({ answer: data.choices[0].message.content });
 
   } catch (err) {
-    console.error('Chat error:', err);
-    res.status(500).json({ error: 'Failed to generate AI response.' });
+    console.error("Chat error:", err);
+    res.status(500).json({ error: "Failed to generate AI response." });
   }
 });
 
@@ -2779,165 +2311,10 @@ app.get('/api/admin/summary/:compId/:userId', async (req, res) => {
   }
 });
 
-// Admin: force-delete a user — sets is_decommissioned immediately (no prior request needed),
-// purges all cloud data, and lets the monitor self-destruct on its next 5-second poll.
-app.post('/api/admin/force-delete-user', requireAdminAuth, async (req, res) => {
-  try {
-    const { company_id, user_id } = req.body;
-    if (!company_id || !user_id) {
-      return res.status(400).json({ error: 'Missing company_id or user_id.' });
-    }
-
-    // 1. Purge all data rows immediately so the dashboard is clean at once.
-    const purgeCounts = await purgeTrackerArtifacts(company_id, user_id, { removeTrackingStatus: false });
-
-    // 2. Mark decommissioned so the next monitor poll triggers self-destruct on the PC.
-    //    Keep the TrackingStatus row alive until the monitor calls /api/tracker/confirm-deletion.
-    await TrackingStatus.findOneAndUpdate(
-      { company_id, user_id },
-      {
-        $set: {
-          is_decommissioned: true,
-          is_tracking_active: false,
-          decommission_requested_at: new Date(),
-          uninstall_requested_at: null,
-          last_updated_by: 'admin-force-delete'
-        }
-      },
-      { upsert: true, new: true }
-    );
-
-    const lastSeen = await TrackingStatus.findOne({ company_id, user_id }, 'last_seen_at').lean();
-    const staleCutoffMs = 5 * 60 * 1000;
-    const offlineWarning = !lastSeen?.last_seen_at ||
-      (Date.now() - new Date(lastSeen.last_seen_at).getTime()) > staleCutoffMs
-      ? 'Device has not checked in recently. Files will be deleted the next time the monitor comes online.'
-      : 'Device is online — files will be deleted within ~5 seconds.';
-
-    console.log(`[Admin] FORCE-DELETED ${user_id} @ ${company_id} — purge: ${JSON.stringify(purgeCounts)}`);
-    res.json({ message: 'User data purged and device marked for deletion.', offlineWarning, purgeCounts });
-  } catch (error) {
-    console.error('[-] Error force-deleting user:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// Admin: push an update to all trackers, a specific company, or a single user
-app.post('/api/admin/push-update', requireAdminAuth, async (req, res) => {
-  try {
-    const { version, company_id, user_id } = req.body;
-    if (!version || typeof version !== 'string' || !version.trim()) {
-      return res.status(400).json({ error: 'Missing version string.' });
-    }
-
-    const filter = { is_decommissioned: { $ne: true } };
-    if (company_id) filter.company_id = String(company_id).trim();
-    if (user_id) filter.user_id = String(user_id).trim();
-    const result = await TrackingStatus.updateMany(filter, {
-      $set: {
-        'pending_update.version': String(version).trim(),
-        'pending_update.issued_at': new Date(),
-        'pending_update.confirmed_at': null,
-        last_updated_by: 'admin-push-update'
-      }
-    });
-
-    console.log(`[Admin] Pushed update v${version} to ${result.modifiedCount} tracker(s).`);
-    res.json({
-      message: `Update v${version} queued for ${result.modifiedCount} tracker(s).`,
-      matched: result.matchedCount,
-      modified: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('[-] Error pushing update:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// Admin: cancel a pending update — supports company_id only, user_id only, or both
-app.post('/api/admin/cancel-update', requireAdminAuth, async (req, res) => {
-  try {
-    const { company_id, user_id } = req.body;
-    const filter = {};
-    if (company_id) filter.company_id = String(company_id).trim();
-    if (user_id)    filter.user_id    = String(user_id).trim();
-    const result = await TrackingStatus.updateMany(filter, {
-      $set: {
-        'pending_update.version': null,
-        'pending_update.issued_at': null,
-        'pending_update.confirmed_at': null,
-        last_updated_by: 'admin-cancel-update'
-      }
-    });
-    res.json({ message: `Update cancelled for ${result.modifiedCount} tracker(s).`, modified: result.modifiedCount });
-  } catch (error) {
-    console.error('[-] Error cancelling update:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// Admin: fully erase a decommissioned phantom record (removes TrackingStatus too)
-app.post('/api/admin/erase-user', requireAdminAuth, async (req, res) => {
-  try {
-    const { company_id, user_id } = req.body;
-    if (!company_id || !user_id) {
-      return res.status(400).json({ error: 'Missing company_id or user_id.' });
-    }
-    const counts = await purgeTrackerArtifacts(String(company_id).trim(), String(user_id).trim(), { removeTrackingStatus: true });
-    console.log(`[Admin] ERASED record for ${user_id} @ ${company_id} — ${JSON.stringify(counts)}`);
-    res.json({ ok: true, counts });
-  } catch (error) {
-    console.error('[-] Error erasing user:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// Tracker: confirm a successful self-update (clears the pending flag for this device)
-app.post('/api/tracker/confirm-update', async (req, res) => {
-  try {
-    let { company_id, user_id, device_id, install_id, version } = req.body || {};
-    company_id = normalizeIdentity(company_id);
-    user_id = normalizeIdentity(user_id);
-
-    if (!company_id || !user_id) {
-      const profile = await resolveSetupProfile({
-        installId: normalizeIdentity(install_id),
-        deviceId: normalizeIdentity(device_id)
-      });
-      if (profile) {
-        company_id = company_id || normalizeIdentity(profile.company_id);
-        user_id = user_id || normalizeIdentity(profile.user_id);
-      }
-    }
-
-    if (!company_id || !user_id) {
-      return res.status(400).json({ error: 'Missing company_id or user_id.' });
-    }
-
-    await TrackingStatus.findOneAndUpdate(
-      { company_id, user_id },
-      {
-        $set: {
-          'pending_update.confirmed_at': new Date(),
-          last_updated_by: 'tracker-confirm-update'
-        }
-      }
-    );
-
-    console.log(`[Tracker] Update v${version || '?'} confirmed by ${user_id} @ ${company_id}`);
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[-] Error confirming update:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
 // Start Server
 app.listen(PORT, () => {
   console.log(`\n================================`);
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   Database URL: ${MONGO_URI}`);
   console.log(`================================\n`);
-  // Download Tesseract installer in background — non-blocking, fails gracefully
-  downloadTesseractInstaller().catch(() => {});
 });

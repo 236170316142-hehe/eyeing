@@ -3,539 +3,302 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Employee Installer — Distribution Portal</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>Employee Package Distribution</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:       #05090f;
-      --surface:  rgba(10, 17, 32, 0.92);
-      --surface2: rgba(14, 22, 40, 0.55);
-      --border:   rgba(255,255,255,0.08);
-      --border2:  rgba(255,255,255,0.05);
-      --text:     #f1f5f9;
-      --text2:    #94a3b8;
-      --text3:    #5a6a7f;
-      --green:    #10b981;
-      --win:      #3b82f6;
-      --mac:      #8b5cf6;
-      --lin:      #f97316;
-      --radius:   18px;
+      --bg: #070d17;
+      --panel: rgba(15, 23, 42, 0.78);
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --muted: #9ca3af;
+      --primary: #2563eb;
+      --accent: #06b6d4;
+      --good: #10b981;
+      --enterprise: #a855f7;
     }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+    * { box-sizing: border-box; }
     body {
+      margin: 0;
       min-height: 100vh;
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: 'Outfit', sans-serif;
       color: var(--text);
       background:
-        radial-gradient(ellipse 90% 55% at -5% -5%,  rgba(6,182,212,0.09) 0%, transparent 55%),
-        radial-gradient(ellipse 70% 65% at 105% 105%, rgba(37,99,235,0.13) 0%, transparent 55%),
-        var(--bg);
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      padding: 44px 20px 72px;
+        radial-gradient(circle at 0% 0%, rgba(6, 182, 212, 0.20), transparent 35%),
+        radial-gradient(circle at 100% 100%, rgba(37, 99, 235, 0.24), transparent 30%),
+        linear-gradient(180deg, #03070f, var(--bg));
+      padding: 28px;
+      display: grid;
+      place-items: center;
     }
 
-    /* ─── SHELL ─────────────────────────────────────────────── */
     .shell {
-      width: 100%;
-      max-width: 1120px;
-      border-radius: var(--radius);
+      width: min(1100px, 100%);
+      border-radius: 24px;
       border: 1px solid var(--border);
-      background: var(--surface);
-      box-shadow:
-        0 0 0 1px rgba(255,255,255,0.03) inset,
-        0 48px 120px rgba(0,0,0,0.65),
-        0 8px 32px  rgba(0,0,0,0.35);
-      backdrop-filter: blur(28px);
+      background: var(--panel);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
       overflow: hidden;
+      backdrop-filter: blur(14px);
     }
 
-    /* ─── HEADER ─────────────────────────────────────────────── */
-    .hdr {
-      padding: 26px 36px;
+    .hero {
+      padding: 28px 32px;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
-      align-items: center;
       gap: 16px;
       flex-wrap: wrap;
-      background: rgba(255,255,255,0.013);
+      align-items: center;
     }
 
-    .hdr-title {
-      font-size: 1.55rem;
+    h1 { margin: 0; font-size: 2rem; }
+    .subtitle { margin-top: 8px; color: var(--muted); line-height: 1.5; }
+
+    .badge {
+      font-size: 0.78rem;
       font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.2;
-      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
     }
 
-    .hdr-sub {
-      margin-top: 5px;
-      color: var(--text2);
-      font-size: 0.875rem;
-      font-weight: 400;
+    .detected-os {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(37, 99, 235, 0.35);
+      background: rgba(37, 99, 235, 0.12);
+      color: #bfdbfe;
+      font-size: 0.92rem;
       line-height: 1.5;
     }
 
-    /* Live badge */
-    .live-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 7px 15px;
-      border-radius: 999px;
-      border: 1px solid rgba(16,185,129,0.22);
-      background: rgba(16,185,129,0.07);
-      color: #6ee7b7;
-      white-space: nowrap;
-      box-shadow: 0 0 20px rgba(16,185,129,0.08), inset 0 1px 0 rgba(16,185,129,0.1);
-      letter-spacing: 0.025em;
-    }
-    .live-dot {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green), 0 0 14px rgba(16,185,129,0.45);
-      animation: pulse 2.2s ease-in-out infinite;
-    }
-    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.82)} }
-
-    /* ─── OS BANNER ──────────────────────────────────────────── */
-    .os-strip {
-      padding: 11px 36px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.875rem;
-      color: var(--text2);
-      background: rgba(255,255,255,0.007);
-      min-height: 44px;
-    }
-
-    .os-chip {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-weight: 600; padding: 3px 11px;
-      border-radius: 7px; font-size: 0.8rem; letter-spacing: 0.01em;
-    }
-    .os-chip.win { background:rgba(59,130,246,0.14); color:#93c5fd; border:1px solid rgba(59,130,246,0.22); }
-    .os-chip.mac { background:rgba(139,92,246,0.14); color:#c4b5fd; border:1px solid rgba(139,92,246,0.22); }
-    .os-chip.lin { background:rgba(249,115,22,0.11); color:#fdba74; border:1px solid rgba(249,115,22,0.22); }
-    .os-chip.unk { background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.09); }
-
-    /* ─── BODY ───────────────────────────────────────────────── */
     .body {
       display: grid;
-      grid-template-columns: 320px 1fr;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 0;
     }
 
-    /* ─── LEFT PANE ──────────────────────────────────────────── */
-    .pane-l {
-      padding: 30px 26px;
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-    }
+    .left, .right { padding: 28px 32px; }
+    .right { border-left: 1px solid var(--border); background: rgba(255,255,255,0.02); }
 
-    /* ─── DOWNLOAD CARD ──────────────────────────────────────── */
-    .dl-card {
-      border-radius: 15px;
-      border: 1px solid rgba(255,255,255,0.1);
-      background: linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%);
-      box-shadow:
-        0 1px 0 rgba(255,255,255,0.06) inset,
-        0 6px 28px rgba(0,0,0,0.25);
-      overflow: hidden;
-      transition: box-shadow 0.22s, border-color 0.22s;
-    }
-    .dl-card:hover {
-      box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 10px 40px rgba(0,0,0,0.35);
-      border-color: rgba(255,255,255,0.14);
-    }
-
-    .dl-card-top {
-      padding: 22px 22px 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .os-icon {
-      width: 52px; height: 52px;
-      border-radius: 13px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.45rem; font-weight: 800; flex-shrink: 0;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-    }
-    .os-icon.win { background:linear-gradient(145deg,rgba(59,130,246,0.28),rgba(37,99,235,0.14)); color:#60a5fa; border:1px solid rgba(59,130,246,0.18); }
-    .os-icon.mac { background:linear-gradient(145deg,rgba(139,92,246,0.28),rgba(109,40,217,0.14)); color:#a78bfa; border:1px solid rgba(139,92,246,0.18); }
-    .os-icon.lin { background:linear-gradient(145deg,rgba(249,115,22,0.22),rgba(194,65,12,0.12));  color:#fb923c; border:1px solid rgba(249,115,22,0.18); }
-
-    .os-info { min-width: 0; }
-    .os-label { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; }
-    .os-sub   { margin-top: 3px; font-size: 0.775rem; color: var(--text3); }
-
-    .dl-divider { height: 1px; background: var(--border); }
-
-    .dl-btn {
-      display: flex; align-items: center; justify-content: center; gap: 9px;
-      width: 100%; padding: 14px 20px;
-      font-family: inherit; font-size: 0.9rem; font-weight: 600;
-      text-align: center; text-decoration: none;
-      border: none; color: #fff; cursor: pointer;
-      transition: filter 0.18s, opacity 0.18s;
-      letter-spacing: 0.01em;
-    }
-    .dl-btn:hover  { filter: brightness(1.12); }
-    .dl-btn:active { filter: brightness(0.95); }
-    .dl-btn.win { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
-    .dl-btn.mac { background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); }
-    .dl-btn.lin { background: linear-gradient(135deg, #f97316 0%, #c2410c 100%); }
-
-    /* multi-OS fallback */
-    .multi-grid { display: grid; gap: 10px; }
-    .multi-grid .dl-btn { border-radius: 11px; border: 1px solid var(--border); }
-
-    .dl-note {
-      display: flex; gap: 10px; align-items: flex-start;
-      padding: 12px 14px;
-      border-radius: 11px;
-      border: 1px solid var(--border2);
-      background: rgba(255,255,255,0.015);
-      font-size: 0.79rem;
-      color: var(--text3);
-      line-height: 1.6;
-    }
-    .dl-note-icon { flex-shrink: 0; font-size: 0.82rem; margin-top: 1px; }
-
-    /* ─── RIGHT PANE ─────────────────────────────────────────── */
-    .pane-r {
-      padding: 30px 36px;
-      min-width: 0;
-      overflow-x: hidden;
-    }
-
-    /* ─── STEPS TIMELINE ─────────────────────────────────────── */
-    .steps-heading {
-      font-size: 0.69rem;
-      font-weight: 600;
-      letter-spacing: 0.1em;
+    .section-label {
+      margin: 22px 0 8px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--text3);
-      margin-bottom: 28px;
-    }
-
-    .steps { list-style: none; }
-
-    .step {
-      display: flex;
-      gap: 16px;
-      padding-bottom: 26px;
-      position: relative;
-    }
-    .step:last-child { padding-bottom: 0; }
-
-    .step:not(:last-child)::after {
-      content: '';
-      position: absolute;
-      left: 15px; top: 33px; bottom: 0;
-      width: 1.5px;
-      background: linear-gradient(to bottom, rgba(255,255,255,0.09) 0%, transparent 100%);
-    }
-
-    .step-num {
-      flex-shrink: 0;
-      width: 32px; height: 32px;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 700; font-size: 0.8rem;
-      border: 1.5px solid; position: relative; z-index: 1;
-    }
-    .step-num.win { background:rgba(59,130,246,0.11); border-color:rgba(59,130,246,0.32); color:#93c5fd; }
-    .step-num.mac { background:rgba(139,92,246,0.11); border-color:rgba(139,92,246,0.32); color:#c4b5fd; }
-    .step-num.lin { background:rgba(249,115,22,0.11); border-color:rgba(249,115,22,0.32); color:#fdba74; }
-
-    .step-body { padding-top: 4px; min-width: 0; flex: 1; }
-    .step-title {
-      font-weight: 600; font-size: 0.94rem; margin-bottom: 5px;
-      color: var(--text); letter-spacing: -0.01em;
-    }
-    .step-desc {
-      color: var(--text2); font-size: 0.845rem; line-height: 1.65;
-      overflow-wrap: break-word; word-break: break-word;
-    }
-
-    .step-desc ic {
-      display: inline; padding: 2px 8px; border-radius: 5px;
-      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
-      color: #cbd5e1; font-size: 0.79rem;
-      font-family: 'Courier New', monospace; white-space: nowrap;
-    }
-
-    /* ─── TIP / POWERSHELL ───────────────────────────────────── */
-    .tip {
-      margin-top: 28px;
-      border-radius: 13px;
-      border: 1px solid rgba(255,255,255,0.07);
-      background: rgba(3,8,18,0.55);
-      overflow: hidden;
-    }
-
-    .tip-header {
-      padding: 11px 16px;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-
-    .tip-title {
-      font-size: 0.7rem; font-weight: 600;
-      letter-spacing: 0.08em; text-transform: uppercase;
-      color: var(--text3);
-    }
-
-    .tip-body {
-      padding: 12px 16px 6px;
-      color: var(--text2); font-size: 0.83rem; line-height: 1.55;
-    }
-
-    .tip code {
-      display: block;
-      padding: 12px 16px;
       color: #94a3b8;
-      font-size: 0.8rem;
-      font-family: 'Courier New', monospace;
-      overflow-x: auto; white-space: pre; word-break: normal;
-      background: rgba(2,5,14,0.6);
-      line-height: 1.65;
     }
 
-    .copy-btn {
-      flex-shrink: 0;
-      padding: 4px 11px;
-      border-radius: 6px;
-      border: 1px solid rgba(255,255,255,0.1);
-      background: rgba(255,255,255,0.06);
-      color: var(--text2);
-      font-size: 0.71rem; font-weight: 600;
-      font-family: inherit; cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-      white-space: nowrap;
-    }
-    .copy-btn:hover { background: rgba(255,255,255,0.11); color: var(--text); }
-    .copy-btn.copied {
-      color: #6ee7b7;
-      border-color: rgba(16,185,129,0.28);
-      background: rgba(16,185,129,0.07);
+    .section-label:first-of-type { margin-top: 0; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 10px;
     }
 
-    /* ─── RESPONSIVE ─────────────────────────────────────────── */
-    @media (max-width: 960px) {
-      body { padding: 20px 12px 48px; }
-      .hdr { padding: 20px 22px; }
-      .hdr-title { font-size: 1.3rem; }
-      .os-strip { padding: 10px 22px; }
+    .actions.single-row {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .btn {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      text-decoration: none;
+      font-weight: 700;
+      padding: 13px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+      text-align: center;
+      font-size: 0.92rem;
+    }
+
+    .btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.08); }
+    .btn.primary { background: linear-gradient(135deg, var(--primary), #1d4ed8); border-color: rgba(37, 99, 235, 0.55); }
+    .btn.accent { background: linear-gradient(135deg, var(--accent), #0e7490); border-color: rgba(6, 182, 212, 0.55); }
+    .btn.enterprise {
+      background: linear-gradient(135deg, var(--enterprise), #7c3aed);
+      border-color: rgba(168, 85, 247, 0.55);
+      grid-column: 1 / -1;
+    }
+    .btn.recommended {
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.45);
+    }
+    .btn.secondary {
+      font-size: 0.85rem;
+      padding: 11px 12px;
+    }
+
+    .block {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .block h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: #bfdbfe;
+    }
+
+    .block p { margin: 0; color: var(--muted); line-height: 1.5; }
+
+    ol { margin: 8px 0 0 18px; color: var(--muted); line-height: 1.8; }
+
+    code {
+      display: block;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(2, 6, 23, 0.6);
+      color: #cbd5e1;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .note {
+      margin-top: 14px;
+      color: #fcd34d;
+      font-size: 0.83rem;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 940px) {
       .body { grid-template-columns: 1fr; }
-      .pane-l { padding: 24px 22px; border-right: none; border-bottom: 1px solid var(--border); }
-      .pane-r { padding: 24px 22px; }
-      .multi-grid { grid-template-columns: 1fr; }
+      .right { border-left: 0; border-top: 1px solid var(--border); }
+      .actions, .actions.single-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-
-    <header class="hdr">
+    <section class="hero">
       <div>
-        <div class="hdr-title">Employee Installer Distribution</div>
-        <div class="hdr-sub">Live build from the Render backend — always includes the latest monitor and configuration.</div>
+        <h1>Employee Installer Distribution</h1>
+        <p class="subtitle">Download the latest live build for Windows, macOS, or Linux. Each ZIP is generated from the Render backend so employees always get the current package and backend URL.</p>
+        <div class="detected-os" id="detectedOs">Detecting your operating system...</div>
       </div>
-      <div class="live-pill">
-        <span class="live-dot"></span>
-        Live &amp; Ready
-      </div>
-    </header>
-
-    <div class="os-strip" id="osBanner">
-      <span>Detecting operating system…</span>
-    </div>
+      <div class="badge">Ready for employee handoff</div>
+    </section>
 
     <section class="body">
+      <div class="left">
+        <div class="section-label">Standard OS packages</div>
+        <p style="margin:0; color: var(--muted);">Pick the ZIP that matches the employee's OS. Windows packages include <strong>deploy_automated.bat</strong> for full automated setup.</p>
 
-      <div class="pane-l">
-        <div id="downloadArea"></div>
-        <div class="dl-note">
-          <span class="dl-note-icon">⚡</span>
-          <span>Every download is freshly generated — employees always get the current monitor version and backend URL baked in.</span>
+        <div class="actions single-row" id="osZipActions">
+          <a class="btn accent" data-os="macos" href="/api/employee/macos.zip">Download macOS ZIP</a>
+          <a class="btn" data-os="linux" href="/api/employee/linux.zip">Download Linux ZIP</a>
+          <a class="btn primary" data-os="windows" href="/api/employee/windows.zip">Download Windows ZIP</a>
+        </div>
+
+        <div class="section-label">Enterprise multi-OS package</div>
+        <p style="margin:0; color: var(--muted);">For IT rollout across mixed fleets. Includes all OS launchers plus multi-PC deployment tools. Run <strong>install_enterprise.bat</strong> on Windows, or <strong>install.command</strong> / <strong>install.sh</strong> on macOS/Linux; each auto-configures the detected OS.</p>
+
+        <div class="actions">
+          <a class="btn enterprise" data-os="enterprise" href="/api/employee/enterprise.zip">Download Enterprise ZIP (Windows + macOS + Linux + Multi-PC tools)</a>
+        </div>
+
+        <div class="section-label">Direct installers (no manual unzip)</div>
+        <p style="margin:0; color: var(--muted);">One-click bootstrap scripts that download the correct package and run the automated installer.</p>
+
+        <div class="actions single-row" id="directInstallActions">
+          <a class="btn secondary" data-os="windows" href="/api/employee/bootstrap.ps1">Windows Direct Installer (.ps1)</a>
+          <a class="btn secondary" data-os="macos" href="/api/employee/macos-install.command">macOS Direct Installer (.command)</a>
+          <a class="btn secondary" data-os="linux" href="/api/employee/linux-install.sh">Linux Direct Installer (.sh)</a>
+        </div>
+
+        <div class="block">
+          <h3>Live package contents</h3>
+          <p>
+            <strong>Windows:</strong> <code style="display:inline;padding:2px 6px;margin:0;">deploy_automated.bat</code> (automated setup), <code style="display:inline;padding:2px 6px;margin:0;">install.bat</code> (entry point), <code style="display:inline;padding:2px 6px;margin:0;">cleanup.bat</code> (full uninstall — double-click to run).<br>
+            <strong>macOS / Linux:</strong> <code style="display:inline;padding:2px 6px;margin:0;">install.sh</code> (auto-detects OS and package manager), plus <code style="display:inline;padding:2px 6px;margin:0;">install.command</code> on macOS.<br>
+            <strong>Enterprise:</strong> all of the above plus <code style="display:inline;padding:2px 6px;margin:0;">install_enterprise.bat</code>, <code style="display:inline;padding:2px 6px;margin:0;">deploy_to_multiple_pcs.bat</code>, and PowerShell multi-PC tools.
+          </p>
+        </div>
+
+        <div class="note">
+          ZIPs are generated live from the Render deployment. A fresh download always includes the latest monitor code and backend URL.
         </div>
       </div>
 
-      <div class="pane-r">
-        <div class="steps-heading" id="stepsHeading">Installation Steps</div>
-        <ul class="steps" id="stepsList"></ul>
-        <div id="tipArea"></div>
-      </div>
+      <aside class="right">
+        <h2 style="margin:0 0 8px;">Expected Setup Flow</h2>
+        <ol>
+          <li>Download the ZIP for the employee's OS, or use a Direct Installer button.</li>
+          <li>Run the included launcher: <strong>deploy_automated.bat</strong> (Windows), <strong>install.command</strong> (macOS), or <strong>install.sh</strong> (Linux). Enterprise Windows: <strong>install_enterprise.bat</strong>.</li>
+          <li>Complete the browser setup page if prompted.</li>
+          <li>Save the employee profile.</li>
+          <li>The monitor starts and stays tied to the live backend.</li>
+        </ol>
 
+        <div class="block" style="margin-top: 16px;">
+          <h3>Windows bootstrap (PowerShell)</h3>
+          <p>Run this on a target PC to download and auto-install:</p>
+          <code id="windowsBootstrapCmd">powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing {{ORIGIN}}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\employee-bootstrap.ps1; & $env:TEMP\employee-bootstrap.ps1"</code>
+        </div>
+
+        <div class="block" style="margin-top: 16px;">
+          <h3>Setup URL</h3>
+          <p>Direct setup page:</p>
+          <code id="setupUrl">{{ORIGIN}}/setup.html?autoclose=1</code>
+        </div>
+
+        <div class="block" style="margin-top: 16px;">
+          <h3>If macOS blocks install.command</h3>
+          <p>Open Terminal in the extracted folder and run:</p>
+          <code>xattr -dr com.apple.quarantine .
+chmod +x install.sh install.command
+./install.sh</code>
+        </div>
+      </aside>
     </section>
   </main>
 
   <script>
     const origin = window.location.origin;
+    document.getElementById('setupUrl').textContent = `${origin}/setup.html?autoclose=1`;
+    document.getElementById('windowsBootstrapCmd').textContent =
+      `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\employee-bootstrap.ps1; & $env:TEMP\\employee-bootstrap.ps1"`;
 
     function detectOs() {
-      const ua = navigator.userAgent || '', pl = navigator.platform || '';
-      if (/Win/i.test(pl)   || /Windows/i.test(ua))   return 'win';
-      if (/Mac/i.test(pl)   || /Macintosh/i.test(ua)) return 'mac';
-      if (/Linux/i.test(pl) || /X11/i.test(ua))       return 'lin';
+      const ua = navigator.userAgent || '';
+      const platform = navigator.platform || '';
+      if (/Win/i.test(platform) || /Windows/i.test(ua)) return 'windows';
+      if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) return 'macos';
+      if (/Linux/i.test(platform) || /X11/i.test(ua)) return 'linux';
       return null;
     }
 
-    const META = {
-      win: { label: 'Windows', icon: '⊞', slug: 'windows', sub: 'Includes install.bat' },
-      mac: { label: 'macOS',   icon: '⌘', slug: 'macos',   sub: 'Includes install.command' },
-      lin: { label: 'Linux',   icon: '$', slug: 'linux',    sub: 'Includes install.sh' },
-    };
+    const detected = detectOs();
+    const osLabels = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+    const detectedEl = document.getElementById('detectedOs');
 
-    const STEPS = {
-      win: [
-        { t: 'Download the Windows ZIP',  d: 'Click the download button on the left.' },
-        { t: 'Extract the ZIP',           d: 'Right-click the file → <em>Extract All</em> and choose a destination folder.' },
-        { t: 'Double-click install.bat',  d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background — no windows, no prompts required.' },
-        { t: 'Complete the setup form',   d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
-        { t: 'Done',                      d: 'The monitor starts silently in the background and restarts automatically after every Windows reboot.' }
-      ],
-      mac: [
-        { t: 'Download the macOS ZIP',       d: 'Click the download button on the left.' },
-        { t: 'Extract the ZIP',              d: 'Double-click the ZIP — macOS extracts it to the same folder automatically.' },
-        { t: 'Double-click install.command', d: 'Your browser opens the setup page automatically. Python, Tesseract, and all dependencies install silently in the background. If macOS blocks it, right-click → <em>Open</em>, then click <em>Open</em>.' },
-        { t: 'Complete the setup form',      d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
-        { t: 'Done',                         d: 'The monitor runs silently and auto-starts after every login via a macOS LaunchAgent.' }
-      ],
-      lin: [
-        { t: 'Download the Linux ZIP', d: 'Click the download button on the left.' },
-        { t: 'Extract the ZIP',        d: 'Run <ic>unzip employee-monitor-linux.zip -d eyeing</ic> in a terminal, or use your file manager.' },
-        { t: 'Run the installer',      d: 'Open a terminal inside the extracted folder and run <ic>bash install.sh</ic>. Your browser opens automatically and all dependencies install silently in the background.' },
-        { t: 'Complete the setup form',d: 'A browser tab opens automatically. Enter the employee\'s name and click Save.' },
-        { t: 'Done',                   d: 'The monitor starts in the background and auto-starts after every reboot via systemd or cron.' }
-      ]
-    };
-
-    const TIPS = {
-      win: {
-        title: 'Remote Install via PowerShell (Optional)',
-        body:  'Deploy to a remote PC without physical access:',
-        get code() { return `powershell -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing ${origin}/api/employee/bootstrap.ps1 -OutFile $env:TEMP\\eb.ps1; & $env:TEMP\\eb.ps1"`; }
-      },
-      mac: {
-        title: 'Quarantine Fix — if install.command is blocked',
-        body:  'Open Terminal in the extracted folder and run:',
-        code:  'xattr -dr com.apple.quarantine .\nchmod +x install.sh install.command\n./install.command'
-      },
-      lin: null
-    };
-
-    const DL_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`;
-
-    function buildDownload(os) {
-      if (!os) {
-        return `<p style="color:var(--text2);font-size:.875rem;margin-bottom:14px;">Could not detect your OS — choose a platform:</p>
-          <div class="multi-grid">
-            <a class="dl-btn win" href="/api/employee/windows.zip">${DL_ICON} Download Windows ZIP</a>
-            <a class="dl-btn mac" href="/api/employee/macos.zip">${DL_ICON} Download macOS ZIP</a>
-            <a class="dl-btn lin" href="/api/employee/linux.zip">${DL_ICON} Download Linux ZIP</a>
-          </div>`;
-      }
-      const m = META[os];
-      return `
-        <div class="dl-card">
-          <div class="dl-card-top">
-            <div class="os-icon ${os}">${m.icon}</div>
-            <div class="os-info">
-              <div class="os-label">${m.label} Package</div>
-              <div class="os-sub">${m.sub}</div>
-            </div>
-          </div>
-          <div class="dl-divider"></div>
-          <a class="dl-btn ${os}" href="/api/employee/${m.slug}.zip">${DL_ICON} Download ${m.label} Installer</a>
-        </div>`;
-    }
-
-    function buildSteps(os) {
-      if (!os) return `<li class="step"><div class="step-body"><div class="step-desc" style="color:var(--text3)">Select your OS above to see step-by-step instructions.</div></div></li>`;
-      return STEPS[os].map((s, i) => `
-        <li class="step">
-          <div class="step-num ${os}">${i + 1}</div>
-          <div class="step-body">
-            <div class="step-title">${s.t}</div>
-            <div class="step-desc">${s.d}</div>
-          </div>
-        </li>`).join('');
-    }
-
-    function buildTip(os) {
-      const t = TIPS[os];
-      if (!t) return '';
-      return `
-        <div class="tip">
-          <div class="tip-header">
-            <div class="tip-title">${t.title}</div>
-            <button class="copy-btn" id="copyBtn" onclick="copyCode()">Copy</button>
-          </div>
-          <div class="tip-body">${t.body}</div>
-          <code id="tipCode"></code>
-        </div>`;
-    }
-
-    /* ── render ── */
-    const os = detectOs();
-
-    if (os) {
-      const m = META[os];
-      document.getElementById('osBanner').innerHTML =
-        `Detected: <span class="os-chip ${os}">${m.icon}&nbsp;${m.label}</span> &nbsp;—&nbsp; showing the installer and guide for your platform.`;
+    if (detected) {
+      detectedEl.innerHTML = `Detected OS: <strong>${osLabels[detected]}</strong>; the matching download is highlighted below. For IT teams deploying to mixed fleets, use the Enterprise ZIP.`;
+      document.querySelectorAll('[data-os]').forEach((el) => {
+        if (el.dataset.os === detected) {
+          el.classList.add('recommended');
+        }
+      });
     } else {
-      document.getElementById('osBanner').innerHTML =
-        `<span class="os-chip unk">OS unknown</span> &nbsp;—&nbsp; could not detect your platform automatically.`;
-    }
-
-    document.getElementById('downloadArea').innerHTML = buildDownload(os);
-    if (os) document.getElementById('stepsHeading').textContent = `Installation Steps — ${META[os].label}`;
-    document.getElementById('stepsList').innerHTML = buildSteps(os);
-
-    const tipHtml = buildTip(os);
-    document.getElementById('tipArea').innerHTML = tipHtml;
-    if (tipHtml && os && TIPS[os]) {
-      const el = document.getElementById('tipCode');
-      if (el) el.textContent = TIPS[os].code;
-    }
-
-    function copyCode() {
-      const el  = document.getElementById('tipCode');
-      const btn = document.getElementById('copyBtn');
-      if (!el || !btn) return;
-      const done = () => {
-        btn.textContent = 'Copied!';
-        btn.classList.add('copied');
-        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-      };
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(el.textContent).then(done).catch(() => fallback(el.textContent, done));
-      } else {
-        fallback(el.textContent, done);
-      }
-    }
-    function fallback(text, cb) {
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.focus(); ta.select();
-      try { document.execCommand('copy'); cb(); } catch(e) {}
-      document.body.removeChild(ta);
+      detectedEl.textContent = 'Could not detect your OS automatically. Choose the ZIP that matches the employee\'s platform, or use the Enterprise ZIP for mixed deployments.';
     }
   </script>
 </body>
